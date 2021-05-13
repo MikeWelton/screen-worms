@@ -1,0 +1,6 @@
+.idea
+cmake-build*
+CMakeLists.txt
+zadanie5
+test.*
+test*.*
