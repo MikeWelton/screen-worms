@@ -4,13 +4,12 @@
 #include <regex>
 #include "aux.cpp"
 
-bool player_name_valid(string &name) {
-    const int MIN_LEN = 1,
-            MAX_LEN = 20,
+bool player_name_valid(const string &name) {
+    const int MAX_LEN = 20,
             ASCII_LOWER_BOUND = 33,
             ASCII_UPPER_BOUND = 126;
 
-    bool correct_len = (MIN_LEN <= name.length() && name.length() <= MAX_LEN);
+    bool correct_len = (name.length() <= MAX_LEN);
 
     if (!correct_len) {
         return false;
@@ -26,13 +25,13 @@ public:
     string player_name;
     string game_server;
     int game_server_port = 2021;
-    string gui_server = "localhost"; // TODO
+    string gui_server = resolve_host("localhost"); // TODO
     int gui_server_port = 20210;
 };
 
 /* Returns true in case of success or false otherwise. */
 bool parse_args(int argc, char **argv, Client &client) {
-    int opt, value;
+    int opt;
     string arg;
 
     while ((opt = getopt(argc, argv, "npir:"))) {
