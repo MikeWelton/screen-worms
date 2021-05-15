@@ -2,23 +2,8 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <regex>
+#include "common_func.cpp"
 #include "aux.cpp"
-
-bool player_name_valid(const string &name) {
-    const int MAX_LEN = 20,
-            ASCII_LOWER_BOUND = 33,
-            ASCII_UPPER_BOUND = 126;
-
-    bool correct_len = (name.length() <= MAX_LEN);
-
-    if (!correct_len) {
-        return false;
-    }
-
-    return all_of(name.begin(), name.end(), [](char c) {
-        return (ASCII_LOWER_BOUND <= c && c <= ASCII_UPPER_BOUND);
-    });
-}
 
 class Client {
 public:
