@@ -4,34 +4,13 @@
 #include <cstring>
 #include <map>
 #include <uv.h>
-#include "common_func.cpp"
-#include "aux.cpp"
-
-#define MIN_TURNING_SPEED 1
-#define MAX_TURNING_SPEED 100
-#define MIN_ROUNDS_PER_SEC 1
-#define MAX_ROUNDS_PER_SEC 240
-#define MIN_WIDTH 192
-#define MAX_WIDTH 1920
-#define MIN_HEIGHT 144
-#define MAX_HEIGHT 1080
+#include "game_manager.cpp"
+#include "../utils/rng.h"
 
 #define PLAYERS_LIMIT 25
 
 using namespace std;
 using ClientId = pair<in_port_t, struct in6_addr>;
-
-class LimitException : public exception {
-private:
-    string msg;
-
-public:
-    explicit LimitException(string str) : msg(std::move(str)) {};
-
-    string get_msg() {
-        return msg;
-    }
-};
 
 struct cmp_ids {
     bool operator()(const ClientId left, const ClientId &right) const {
@@ -43,144 +22,13 @@ struct cmp_ids {
     }
 };
 
-class Rng {
-public:
-    long value;
-
-    explicit Rng(int seed) : value(seed) {}
-
-    long get_random() {
-        long ret = value;
-        value = (value * 279410273) % 4294967291;
-        return ret;
-    }
-};
-
-class PlayerData {
-public:
-    uint8_t number{};
-    string name;
-    double x{};
-    double y{};
-    uint8_t direction{};
-    bool disconnected = false;
-    bool playing = false;
-
-    PlayerData() = default;
-
-    explicit PlayerData(const string &_name) {
-        name = _name;
-    }
-};
-
-class GameState {
-public:
-    bool started = false;
-    uint32_t game_id{};
-    vector<Event> events;
-    vector<vector<bool>> eaten_pixels; // true if pixel eaten
-};
-
-class GameManager {
-private:
-    /* Function checks if value is given limits (both are inclusive) and throws exception if
-     * limits are violated. */
-    static void check_limits(int value, int lower_bound, int upper_bound, const string &value_name) {
-        if (value < lower_bound || upper_bound < value) {
-            throw LimitException(value_name + " " + to_string(value) + " violates given limits "
-                                 + to_string(lower_bound) + "-" + to_string(upper_bound));
-        }
-    }
-
-    ServerMsg create_server_msg() {
-        return ServerMsg(game_state.game_id, game_state.events);
-    }
-
-    ServerMsg new_game(const ClientMsg &msg) {
-
-    }
-
-    ServerMsg new_observer(const ClientMsg &msg) {
-        ++observers;
-        return create_server_msg();
-    }
-
-    ServerMsg new_non_observer(const ClientMsg &msg) {
-        ++non_observers;
-        if (msg.turn_direction != 0) {
-            ++ready;
-        }
-
-        if (game_state.started) {
-            return create_server_msg();
-        }
-        else {
-            if (non_observers >= 2 && ready == non_observers) { // game ready to start
-                return new_game(msg);
-            }
-            else {
-                return create_server_msg();
-            }
-        }
-    }
-
-public:
-    Rng rng = Rng(time(nullptr));
-    uint32_t turning_speed = 6;
-    uint32_t rounds_per_sec = 50;
-    uint32_t width = 640;
-    uint32_t height = 480;
-    GameState game_state;
-    map<uint64_t, PlayerData> players_data;
-    uint32_t ready = 0;
-    uint32_t non_observers = 0;
-    uint32_t observers = 0;
-
-    void set_turning_speed(int _turning_speed) {
-        check_limits(_turning_speed, MIN_TURNING_SPEED, MAX_TURNING_SPEED, "Turning speed");
-        turning_speed = _turning_speed;
-    }
-
-    void set_rounds_per_sec(int _rounds_per_sec) {
-        check_limits(_rounds_per_sec, MIN_ROUNDS_PER_SEC, MAX_ROUNDS_PER_SEC, "Rounds per sec");
-        rounds_per_sec = _rounds_per_sec;
-    }
-
-    void set_width(int _width) {
-        check_limits(_width, MIN_WIDTH, MAX_WIDTH, "Width");
-        width = _width;
-    }
-
-    void set_height(int _height) {
-        check_limits(_height, MIN_HEIGHT, MAX_HEIGHT, "Height");
-        height = _height;
-    }
-
-    ServerMsg new_message(const ClientMsg &msg) {
-
-    }
-
-    ServerMsg new_participant(const ClientMsg &msg) {
-        players_data[msg.session_id] = PlayerData(msg.player_name);
-        if (msg.player_name.empty()) {
-            return new_observer(msg);
-        }
-        else {
-            return new_non_observer(msg);
-        }
-    }
-
-    void player_disconnected(uint64_t session_id) {
-        players_data[session_id].disconnected = true;
-    }
-};
-
 class Server {
 public:
     GameManager game_manager;
     int sock{};
     int port_num = 2021;
     map<ClientId, uint64_t, cmp_ids> clients;
+    Timer timer;
 
     /* Returns true in case of success or false otherwise. */
     bool parse_args(int argc, char **argv) {
@@ -259,10 +107,6 @@ public:
                 send_answer(answer, buffer, client_addr);
             }
         }
-
-        if (close(sock) < 0) {
-            exit_error("Socket close error");
-        }
     }
 
 private:
@@ -281,14 +125,14 @@ private:
                 return ServerMsg();
             }
             clients[client_id] = session_id;
-            return game_manager.new_participant(ClientMsg(buffer, size));
+            return game_manager.new_participant(ClientToServerMsg(buffer, size));
         }
         else if (iter->second == session_id) {
-            return game_manager.new_message(ClientMsg(buffer, size));
+            return game_manager.new_message(ClientToServerMsg(buffer, size));
         }
         else if (iter->second > session_id) {
             game_manager.player_disconnected(iter->second);
-            return game_manager.new_participant(ClientMsg(buffer, size));
+            return game_manager.new_participant(ClientToServerMsg(buffer, size));
         }
         return ServerMsg();
     }
