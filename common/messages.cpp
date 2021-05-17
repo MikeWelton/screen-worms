@@ -3,6 +3,7 @@
 #include <utility>
 #include "events.cpp"
 #include "const.h"
+#include "../common/exceptions.h"
 
 using namespace std;
 
@@ -30,6 +31,11 @@ public:
         memcpy(name, &msg[MIN_CLIENT_MSG_LEN], size - MIN_CLIENT_MSG_LEN);
         player_name = name;
     }
+
+    string to_string() {
+        return ::to_string(session_id) + ::to_string(turn_direction)
+            + ::to_string(next_expected_event_no) + player_name;
+    }
 };
 
 /* Message send from server to client. */
@@ -40,6 +46,32 @@ public:
     bool to_all = false;
 
     explicit ServerMsg() = default;
+
+    ServerMsg(char *buffer, size_t size) {
+        size_t len;
+        string msg(buffer, size);
+        Event event;
+
+        if (msg.size() > sizeof(uint32_t)) {
+            game_id = string_to_int(msg.substr(0, 4));
+            msg = msg.substr(4, msg.length() - 4);
+            while (!msg.empty()) {
+                len = string_to_int(msg.substr(0, 4)) + 8;
+                try {
+                     event = Event(msg.substr(0, len));
+                }
+                catch (IncorrectCrc32Exception &e) {
+                    return;
+                }
+                catch (UnknownEventTypeException &e) {
+                    msg = msg.substr(len, msg.length() - len);
+                    continue;
+                }
+                events.push_back(event);
+                msg = msg.substr(len, msg.length() - len);
+            }
+        }
+    }
 
     ServerMsg(uint32_t _game_id, const vector<Event> &_events) :
             game_id(_game_id),

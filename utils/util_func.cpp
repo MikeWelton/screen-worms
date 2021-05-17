@@ -106,6 +106,18 @@ struct addrinfo resolve_host(const string& addr, int type, const string &port) {
     return ret;
 }
 
+vector<string> split(const string &str, const string &delimiter) {
+    vector<string> tokens;
+    size_t end = 0, start = str.find_first_not_of(delimiter, end);
+
+    while (start != string::npos) {
+        end = str.find_first_of(delimiter, start);
+        tokens.push_back(str.substr(start, end - start));
+        start = str.find_first_not_of(delimiter, end);
+    }
+    return tokens;
+}
+
 void exit_error(const string &msg) {
     cerr << msg << endl;
     exit(EXIT_FAILURE);

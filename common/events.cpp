@@ -4,6 +4,7 @@
 #include <cstring>
 #include <memory>
 #include "../utils/util_func.h"
+#include "../common/exceptions.h"
 
 using namespace std;
 
@@ -31,6 +32,13 @@ public:
     // następnie lista nazw graczy zawierająca dla każdego z graczy player_name, jak w punkcie „2.1. Komunikaty od klienta do serwera”, oraz znak '\0'
     vector<string> player_names; // 0–20 znaków ASCII o wartościach z przedziału 33–126, w szczególności spacje nie są dozwolone
 
+    NewGameData(const string &str) {
+        memcpy(&maxx, (uint32_t *) str.substr(0, 4).c_str(), 4);
+        memcpy(&maxy, (uint32_t *) str.substr(4, 4).c_str(), 4);
+        string names = str.substr(8, str.length() - 8);
+        player_names = split(names, "\0");
+    }
+
     NewGameData(uint32_t maxx, uint32_t maxy, const vector<string> &player_names) :
             maxx(maxx),
             maxy(maxy),
@@ -47,9 +55,8 @@ public:
     string to_string() override {
         string ret = std::to_string(maxx) + std::to_string(maxy);
         for (auto &str: player_names) {
-            ret.append(str);
+            ret.append(str + '\0');
         }
-        ret += '\0';
         return ret;
     }
 
@@ -69,6 +76,12 @@ public:
     uint8_t player_number; // 1 bajt
     uint32_t x; // 4 bajty, odcięta, liczba bez znaku
     uint32_t y; // 4 bajty, rzędna, liczba bez znaku
+
+    PixelData(const string &str) {
+        memcpy(&player_number, (uint8_t *) str.c_str(), 1);
+        memcpy(&x, (uint32_t *) str.substr(1, 4).c_str(), 4);
+        memcpy(&y, (uint32_t *) str.substr(5, 4).c_str(), 4);
+    }
 
     PixelData(uint8_t player_number, uint32_t x, uint32_t y) : player_number(player_number),
                                                                x(x), y(y) {}
@@ -90,6 +103,10 @@ class PlayerEliminatedData : public EventData {
 public:
     string name = "PLAYER_ELIMINATED";
     uint8_t player_number; // 1 bajt;
+
+    PlayerEliminatedData(const string &str) {
+        memcpy(&player_number, (uint8_t *) str.c_str(), 1);
+    }
 
     explicit PlayerEliminatedData(uint8_t player_number) : player_number(player_number) {}
 
@@ -125,12 +142,51 @@ private:
         return ret;
     }
 
+    bool correct_event_type(uint8_t type) {
+        for (uint8_t t = NEW_GAME; t <= GAME_OVER; ++t) {
+            if (type == t) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 public:
     uint32_t len; // 4 bajty, liczba bez znaku, sumaryczna długość pól event_*
     uint32_t event_no{}; // 4 bajty, liczba bez znaku, dla każdej partii kolejne wartości, począwszy od zera
     EventType event_type; // 1 bajt
     shared_ptr<EventData> event_data; // zależy od typu, patrz opis poniżej
     uint32_t crc32; // 4 bajty, liczba bez znaku, suma kontrolna obejmująca pola od pola len do event_data włącznie, obliczona standardowym algorytmem CRC-32-IEEE
+
+    Event() = default;
+
+    Event(const string &msg) {
+        len = string_to_int(msg.substr(0, 4));
+        event_no = string_to_int(msg.substr(4, 4));
+        uint8_t event_t = string_to_int(msg.substr(8, 1));
+        if (!correct_event_type(event_t) || event_t == GAME_OVER) {
+            throw UnknownEventTypeException();
+        }
+        event_type = (EventType) event_t;
+        string body = msg.substr(0, msg.length() - 4);
+        uint32_t crc = string_to_int(msg.substr(msg.length() - 4, 4));
+        if (crc != ::crc32(body.c_str(), body.length())) {
+            throw IncorrectCrc32Exception();
+        }
+        crc32 = crc;
+
+        string data_str = body.substr(9, body.length() - 9);
+        if (event_type == NEW_GAME) {
+            event_data = make_shared<NewGameData>(NewGameData(data_str));
+        }
+        else if (event_type == PIXEL) {
+            event_data = make_shared<PixelData>(PixelData(data_str));
+        }
+        else if (event_type == PLAYER_ELIMINATED) {
+            event_data = make_shared<PlayerEliminatedData>(PlayerEliminatedData(data_str));
+        }
+
+    }
 
     Event(EventType _event_type, const shared_ptr<EventData> &_event_data) :
             event_type(_event_type),

@@ -21,7 +21,7 @@ static const map<string, uint8_t> KEY_TO_DIR = {
 
 class Connection {
 private:
-    int create_connection(struct addrinfo host, int type, int protocol) {
+    static int create_connection(struct addrinfo host, int type, int protocol) {
         int sock = socket(host.ai_family, type, protocol);
         if (sock < 0) {
             exit_error("Socket error");
@@ -59,12 +59,22 @@ public:
 
 class Client {
 private:
-    uint8_t get_direction(const string &action) {
+    static uint8_t get_direction(const string &action) {
         return KEY_TO_DIR.find(action)->second;
     }
 
     string create_msg_to_server() {
-        ClientToServerMsg();
+        return ClientToServerMsg(session_id, direction,
+                                 next_expected_event_no, player_name).to_string();
+    }
+
+    vector<string> create_msgs_to_gui(char *buffer, size_t len) {
+        ServerMsg msg(buffer, len);
+        vector<string> ret;
+        for (auto &event: msg.events) {
+            ret.push_back(event.event_data->to_gui_msg(player_name));
+        }
+        return ret;
     }
 
 public:
@@ -123,7 +133,6 @@ public:
     }
 
     [[noreturn]] void run() {
-        struct sockaddr_in6 addr{};
         char buffer[DATAGRAM_SIZE];
         socklen_t rcv_len;
         ServerMsg answer;
@@ -142,8 +151,13 @@ public:
                 timer.start();
             }
 
-            if ((rcv_len = recv(game_server_sock, buffer, DATAGRAM_SIZE, 0)) > 0) {
-                validate_event();
+            while ((rcv_len = recv(game_server_sock, buffer, DATAGRAM_SIZE, 0)) > 0) {
+                vector<string> msgs_to_gui = create_msgs_to_gui(buffer, rcv_len);
+
+                for (auto &msg: msgs_to_gui) {
+                    memcpy(buffer, msg.c_str(), msg.length());
+                    write(gui_server_sock, buffer, msg.length()); // TODO error check, broken pipe etc.
+                }
             }
         }
     }

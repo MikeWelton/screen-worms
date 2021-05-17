@@ -1,10 +1,12 @@
 #include <map>
 #include <utility>
-#include "exceptions.cpp"
+#include <algorithm>
+#include "../common/exceptions.h"
 #include "../common/events.cpp"
 #include "../common/messages.cpp"
 #include "../utils/timer.h"
 #include "../utils/rng.h"
+#include "../utils/id_manager.h"
 
 #define MIN_TURNING_SPEED 1
 #define MAX_TURNING_SPEED 360
@@ -25,15 +27,16 @@ public:
     uint8_t direction{};
     bool disconnected = false;
     bool playing = false;
-    bool observer = false;
     Timer timer;
 
     PlayerData() = default;
 
-    explicit PlayerData(string _name) : name(std::move(_name)), timer() {}
+    explicit PlayerData(string _name) : name(std::move(_name)) {
+        timer.start();
+    }
 
     void init(uint32_t width, uint32_t height, Rng &rng) {
-
+        // TODO here
     }
 };
 
@@ -68,6 +71,20 @@ private:
         }
     }
 
+    /*vector<PlayerData> sort_players_by_name() {
+        vector<PlayerData> players;*/
+        /* Extract values from map and sort them by name. */
+        /*transform(players_data.begin(), players_data.end(), back_inserter(players),
+                  [](const map<uint32_t, PlayerData>::value_type& val) {
+            return val.second;
+        });
+        sort(players.begin(), players.end(),
+             [](const PlayerData &data1, const PlayerData &data2) {
+                 return data1.name < data2.name;
+        });
+        return players;
+    }*/
+
     ServerMsg create_server_msg() {
         return ServerMsg(game_state.game_id, game_state.events);
     }
@@ -78,12 +95,10 @@ private:
 
     void generate_new_game() {
         vector<string> names;
-        names.reserve(non_observers);
+        names.reserve(ready);
         for(auto &iter: players_data) {
-            auto &player = iter.second;
-            if (!(player.observer)) {
-                names.push_back(player.name);
-            }
+            PlayerData &player = iter.second;
+            names.push_back(player.name);
         }
         NewGameData data(width, height, names);
         Event event = Event(NEW_GAME, make_shared<NewGameData>(data));
@@ -100,42 +115,44 @@ private:
         Event event = Event(PIXEL, make_shared<PixelData>(data));
     }
 
+    void generate_game_over() {
+
+    }
+
     ServerMsg new_game(const ClientToServerMsg &msg) {
         game_state = GameState(rng.get_random(), width, height);
-
-        vector<string> playing;
-
+        playing = ready;
+        ready = 0;
 
         generate_new_game();
 
+        IdManager id_manager;
         for(auto &iter: players_data) {
-            auto &player = iter.second;
-            if (!player.observer) {
-                player.playing = true;
-                player.x = (rng.get_random() % width) + 0.5;
-                player.y = (rng.get_random() % height) + 0.5;
-                player.direction = rng.get_random() % 360;
-                if (game_state.eaten_pixels[player.x][player.y]) {
-                    generate_player_eliminated(player.number);
-                }
-                else {
-                    game_state.eaten_pixels[player.x][player.y] = true;
-                    generate_pixel(player.number, player.x, player.y);
-                }
+            PlayerData &player = iter.second;
+            player.playing = true;
+            player.number = id_manager.get_next_id();
+            player.x = (rng.get_random() % width) + 0.5;
+            player.y = (rng.get_random() % height) + 0.5;
+            player.direction = rng.get_random() % 360;
+            if (game_state.eaten_pixels[player.x][player.y]) {
+                --playing;
+                player.playing = false;
+                generate_player_eliminated(player.number);
             }
+            else {
+                game_state.eaten_pixels[player.x][player.y] = true;
+                generate_pixel(player.number, player.x, player.y);
+            }
+        }
+
+        if (playing == 1) {
+            generate_game_over();
         }
 
         return create_server_msg_to_all();
     }
 
-    ServerMsg new_observer(const ClientToServerMsg &msg) {
-        ++observers;
-        players_data[msg.session_id].observer = true;
-        return create_server_msg();
-    }
-
-    ServerMsg new_non_observer(const ClientToServerMsg &msg) {
-        ++non_observers;
+    ServerMsg new_player(const ClientToServerMsg &msg) {
         if (msg.turn_direction != 0) {
             ++ready;
         }
@@ -144,7 +161,7 @@ private:
             return create_server_msg();
         }
         else {
-            if (non_observers >= 2 && ready == non_observers) { // game ready to start
+            if (ready >= 2 && ready == players_data.size()) { // game ready to start
                 return new_game(msg);
             }
             else {
@@ -160,10 +177,9 @@ public:
     uint32_t width = 640;
     uint32_t height = 480;
     GameState game_state;
-    map<uint64_t, PlayerData> players_data;
+    map<string, PlayerData> players_data;
     uint32_t ready = 0;
-    uint32_t non_observers = 0;
-    uint32_t observers = 0;
+    uint32_t playing = 0;
 
 
     void set_turning_speed(int _turning_speed) {
@@ -186,21 +202,40 @@ public:
         height = _height;
     }
 
-    ServerMsg new_message(const ClientToServerMsg &msg) {
+    ServerMsg new_message(const ClientToServerMsg &msg, const string &name) {
+        auto iter = players_data.find(name);
+        if (iter != players_data.end()) { // not observer
+            PlayerData &player = iter->second;
+            player.direction = msg.turn_direction;
 
-    }
-
-    ServerMsg new_participant(const ClientToServerMsg &msg) {
-        players_data[msg.session_id] = PlayerData(msg.player_name); // TODO check
-        if (msg.player_name.empty()) {
-            return new_observer(msg);
-        }
-        else {
-            return new_non_observer(msg);
+            // TODO check event number
         }
     }
 
-    void player_disconnected(uint64_t session_id) {
-        players_data[session_id].disconnected = true;
+    ServerMsg new_participant(const ClientToServerMsg &msg, const string &name) {
+        players_data[name] = PlayerData(msg.player_name); // TODO check if valid
+        if (!msg.player_name.empty()) {
+            return new_player(msg);
+        }
+        // otherwise it's observer and we don't care about what he is doing
+    }
+
+    void player_disconnected(const string &name) {
+        players_data[name].disconnected = true;
+    }
+
+    ServerMsg cyclic_activities(Timer &timer) {
+        if (timer.timeout(1 / rounds_per_sec)) {
+            for (auto &iter: players_data) {
+                PlayerData &player = iter.second;
+                if (player.disconnected && player.playing) {
+
+                    // TODO calculate stuff
+                }
+            }
+            timer.start();
+        }
+
+        return ServerMsg();
     }
 };
