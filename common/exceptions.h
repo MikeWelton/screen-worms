@@ -1,3 +1,6 @@
+#ifndef SCREEN_WORMS_EXCEPTIONS_H
+#define SCREEN_WORMS_EXCEPTIONS_H
+
 #include <exception>
 #include <string>
 
@@ -24,3 +27,5 @@ public:
         return msg;
     }
 };
+
+#endif //SCREEN_WORMS_EXCEPTIONS_H

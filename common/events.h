@@ -1,3 +1,6 @@
+#ifndef SCREEN_WORMS_EVENTS_H
+#define SCREEN_WORMS_EVENTS_H
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -53,7 +56,10 @@ public:
     }
 
     string to_string() override {
-        string ret = std::to_string(maxx) + std::to_string(maxy);
+        char nums[sizeof(maxx) + sizeof(maxy)];
+        memcpy(nums, &maxx, sizeof(maxx));
+        memcpy(nums + sizeof(maxy), &maxy, sizeof(maxy));
+        string ret = nums;
         for (auto &str: player_names) {
             ret.append(str + '\0');
         }
@@ -91,7 +97,11 @@ public:
     }
 
     string to_string() override {
-        return std::to_string(player_number) + std::to_string(x) + std::to_string(y);
+        char ret[sizeof(player_number) + sizeof(x) + sizeof(y)];
+        memcpy(ret, &player_number, sizeof(player_number));
+        memcpy(ret + sizeof(player_number), &x, sizeof(x));
+        memcpy(ret + sizeof(player_number) + sizeof(x), &y, sizeof(y));
+        return ret;
     }
 
     string to_gui_msg(const string &player_name) override {
@@ -115,7 +125,9 @@ public:
     }
 
     string to_string() override {
-        return std::to_string(player_number);
+        char ret[sizeof(player_number)];
+        memcpy(ret, &player_number, sizeof(player_number));
+        return ret;
     }
 
     string to_gui_msg(const string &player_name) override {
@@ -136,13 +148,14 @@ class GameOverData : public EventData {
 class Event {
 private:
     string body_string() {
-        string ret = std::to_string(len) + std::to_string(event_no);
-        ret.append((char *) &event_type, 1);
-        ret.append(event_data->to_string());
-        return ret;
+        char ret[sizeof(len) + sizeof(event_no) + sizeof(uint8_t)];
+        memcpy(ret, &len, sizeof(len));
+        memcpy(ret + sizeof(len), &event_no, sizeof(event_no));
+        memcpy(ret + sizeof(len) + sizeof event_no, &event_type, sizeof(uint8_t)); // TODO check this enum and 1 byte
+        return ret + event_data->to_string();
     }
 
-    bool correct_event_type(uint8_t type) {
+    static bool correct_event_type(uint8_t type) {
         for (uint8_t t = NEW_GAME; t <= GAME_OVER; ++t) {
             if (type == t) {
                 return true;
@@ -160,16 +173,18 @@ public:
 
     Event() = default;
 
-    Event(const string &msg) {
-        len = string_to_int(msg.substr(0, 4));
-        event_no = string_to_int(msg.substr(4, 4));
-        uint8_t event_t = string_to_int(msg.substr(8, 1));
+    explicit Event(const string &msg) {
+        memcpy(&len, msg.substr(0, 4).c_str(), sizeof(len));
+        memcpy(&event_no, msg.substr(4, 4).c_str(), sizeof(event_no));
+        uint8_t event_t;
+        memcpy(&event_t, msg.substr(8, 1).c_str(), sizeof(uint8_t));
         if (!correct_event_type(event_t) || event_t == GAME_OVER) {
             throw UnknownEventTypeException();
         }
         event_type = (EventType) event_t;
         string body = msg.substr(0, msg.length() - 4);
-        uint32_t crc = string_to_int(msg.substr(msg.length() - 4, 4));
+        uint32_t crc;
+        memcpy(&crc, msg.substr(msg.length() - 4, 4).c_str(), sizeof(crc));
         if (crc != ::crc32(body.c_str(), body.length())) {
             throw IncorrectCrc32Exception();
         }
@@ -201,9 +216,13 @@ public:
     }
 
     string to_string() {
-        string ret = body_string();
+        string body_str = body_string();
+        char crc[sizeof(crc32)];
+
         crc32 = calc_crc32();
-        ret.append(std::to_string(crc32));
-        return ret;
+        memcpy(crc, &crc32, sizeof(crc32));
+        return body_str + crc;
     }
 };
+
+#endif //SCREEN_WORMS_EVENTS_H

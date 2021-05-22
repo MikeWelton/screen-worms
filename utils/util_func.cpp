@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <uv.h>
 #include <cstring>
+#include <cmath>
 
 using namespace std;
 
@@ -116,6 +117,26 @@ vector<string> split(const string &str, const string &delimiter) {
         start = str.find_first_not_of(delimiter, end);
     }
     return tokens;
+}
+
+Coord normalized_vector(uint32_t angle) {
+    double rad;
+    if (0 <= angle && angle <= 90) {
+        rad = angle * 180 / M_PI;
+        return Coord(cos(rad), sin(rad));
+    }
+    else if (angle < 180) {
+        rad = (angle - 90) * 180 / M_PI;
+        return Coord(-sin(rad), cos(rad));
+    }
+    else if (angle <= 270) {
+        rad = (angle - 180) * 180 / M_PI;
+        return Coord(-cos(rad), -sin(rad));
+    }
+    else {
+        rad = (angle - 270) * 180 / M_PI;
+        return Coord(sin(rad), -cos(rad));
+    }
 }
 
 void exit_error(const string &msg) {

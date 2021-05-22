@@ -2,8 +2,8 @@
 #include <utility>
 #include <algorithm>
 #include "../common/exceptions.h"
-#include "../common/events.cpp"
-#include "../common/messages.cpp"
+#include "../common/events.h"
+#include "../common/messages.h"
 #include "../utils/timer.h"
 #include "../utils/rng.h"
 #include "../utils/id_manager.h"
@@ -24,7 +24,8 @@ public:
     string name;
     double x{};
     double y{};
-    uint8_t direction{};
+    uint8_t move_direction{};
+    uint8_t turn_direction{};
     bool disconnected = false;
     bool playing = false;
     Timer timer;
@@ -58,6 +59,14 @@ public:
         event.event_no = events.size();
         events.push_back(event);
     }
+
+    size_t get_last_event_num() {
+        return events.back().event_no;
+    }
+
+    vector<Event> get_missing_events(size_t next_exp_event_no) {
+        return vector<Event>(&events[next_exp_event_no], &(events.back()));
+    };
 };
 
 class GameManager {
@@ -133,7 +142,7 @@ private:
             player.number = id_manager.get_next_id();
             player.x = (rng.get_random() % width) + 0.5;
             player.y = (rng.get_random() % height) + 0.5;
-            player.direction = rng.get_random() % 360;
+            player.move_direction = rng.get_random() % 360;
             if (game_state.eaten_pixels[player.x][player.y]) {
                 --playing;
                 player.playing = false;
@@ -152,7 +161,8 @@ private:
         return create_server_msg_to_all();
     }
 
-    ServerMsg new_player(const ClientToServerMsg &msg) {
+    ServerMsg new_player(const ClientToServerMsg &msg, const string &name) {
+        players_data[name].turn_direction = msg.turn_direction;
         if (msg.turn_direction != 0) {
             ++ready;
         }
@@ -206,22 +216,28 @@ public:
         auto iter = players_data.find(name);
         if (iter != players_data.end()) { // not observer
             PlayerData &player = iter->second;
-            player.direction = msg.turn_direction;
+            player.turn_direction = msg.turn_direction;
 
-            // TODO check event number
+            if (game_state.get_last_event_num() >= msg.next_expected_event_no) {
+                return ServerMsg(game_state.game_id, game_state.get_missing_events(msg.next_expected_event_no));
+            }
         }
+        return ServerMsg();
     }
 
     ServerMsg new_participant(const ClientToServerMsg &msg, const string &name) {
         players_data[name] = PlayerData(msg.player_name); // TODO check if valid
         if (!msg.player_name.empty()) {
-            return new_player(msg);
+            return new_player(msg, name);
         }
         // otherwise it's observer and we don't care about what he is doing
+        return ServerMsg();
     }
 
     void player_disconnected(const string &name) {
-        players_data[name].disconnected = true;
+        if (!name.empty()) {
+            players_data[name].disconnected = true;
+        }
     }
 
     ServerMsg cyclic_activities(Timer &timer) {
@@ -229,8 +245,29 @@ public:
             for (auto &iter: players_data) {
                 PlayerData &player = iter.second;
                 if (player.disconnected && player.playing) {
+                    if (player.turn_direction == 1) {
+                        player.move_direction += turning_speed;
+                    }
+                    else if (player.turn_direction == 2) {
+                        player.move_direction -= turning_speed;
+                    }
+                    Coord vec = normalized_vector(player.move_direction);
+                    Coord old = Coord(player.x, player.y);
+                    player.x += vec.first;
+                    player.y += vec.second;
 
-                    // TODO calculate stuff
+                    if ((uint32_t) player.x == (uint32_t) old.first
+                            && (uint32_t) player.y == (uint32_t) old.second) {
+                        continue;
+                    }
+
+                    if (game_state.eaten_pixels[player.x][player.y]) {
+                        generate_player_eliminated(player.number);
+                    }
+                    else {
+                        game_state.eaten_pixels[player.x][player.y] = true;
+                        generate_pixel(player.number, player.x, player.y);
+                    }
                 }
             }
             timer.start();

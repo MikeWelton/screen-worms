@@ -6,8 +6,7 @@
 #include <netinet/tcp.h>
 #include "../utils/util_func.h"
 #include "../utils/timer.h"
-#include "../common/messages.cpp"
-#include "../common/events.cpp"
+#include "../common/messages.h"
 
 #define MILLIS 3000
 
@@ -79,7 +78,7 @@ private:
 
 public:
     uint32_t session_id = Timer::get_session_id();
-    uint8_t direction;
+    uint8_t direction{};
     uint32_t next_expected_event_no = 0;
     string player_name;
     int game_server_sock{};

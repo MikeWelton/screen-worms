@@ -5,9 +5,9 @@
 #include <map>
 #include <uv.h>
 #include "game_manager.cpp"
-#include "../utils/id_manager.h"
 
 #define PLAYERS_LIMIT 25
+#define TIMEOUT_MILLIS 2000
 
 using namespace std;
 using ClientSock = pair<in_port_t, struct in6_addr>;
@@ -29,8 +29,8 @@ public:
     int sock{};
     int port_num = 2021;
     map<ClientSock, ClientId, cmp_ids> clients;
+    map<ClientSock, Timer, cmp_ids> timers;
     Timer timer;
-    IdManager id_manager;
 
     /* Returns true in case of success or false otherwise. */
     bool parse_args(int argc, char **argv) {
@@ -87,6 +87,13 @@ public:
         if (bind(this->sock, (struct sockaddr *) &local_addr, sizeof(local_addr)) < 0) {
             exit_error("Bind error");
         }
+
+        struct timeval read_timeout{};
+        read_timeout.tv_sec = 0;
+        read_timeout.tv_usec = 10;
+        if (setsockopt(this->sock, SOL_SOCKET, SO_RCVTIMEO, &read_timeout, sizeof read_timeout) < 0) {
+            exit_error("Set not blocking error");
+        }
     }
 
     [[noreturn]] void run() {
@@ -108,6 +115,7 @@ public:
             answer = manage_message(client_addr.sin6_port, client_addr.sin6_addr, buffer, rcv_len);
             manage_answer(answer, buffer, client_addr);
 
+            check_timeouts();
             answer = game_manager.cyclic_activities(timer);
             manage_answer(answer, buffer, client_addr);
         }
@@ -129,22 +137,39 @@ private:
             if (clients.size() >= PLAYERS_LIMIT) {
                 return ServerMsg();
             }
-            uint32_t id = id_manager.get_next_id();
             ClientToServerMsg msg(buffer, size);
             clients[client_sock] = ClientId(session_id, msg.player_name);
+            timers[client_sock] = Timer();
+            timers[client_sock].start();
             return game_manager.new_participant(msg, msg.player_name);
         }
         else if (iter->second.first == session_id) {
+            timers[client_sock].start();
             return game_manager.new_message(ClientToServerMsg(buffer, size), iter->second.second);
         }
         else if (iter->second.first > session_id) {
             ClientToServerMsg msg(buffer, size);
             clients[client_sock] = ClientId(iter->second.first, msg.player_name);
+            timers[client_sock] = Timer();
+            timers[client_sock].start();
             game_manager.player_disconnected(iter->second.second);
             return game_manager.new_participant(ClientToServerMsg(buffer, size), msg.player_name);
         }
         else {
+            timers[client_sock].start();
             return ServerMsg();
+        }
+    }
+
+    void check_timeouts() {
+        for (auto iter: timers) {
+            auto &client_sock = iter.first;
+            auto &client_timer = iter.second;
+            if (client_timer.timeout(TIMEOUT_MILLIS)) {
+                game_manager.player_disconnected(clients[client_sock].second);
+                clients.erase(client_sock);
+                timers.erase(client_sock);
+            }
         }
     }
 

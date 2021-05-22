@@ -2,5 +2,6 @@
 cmake-build*
 CMakeLists.txt
 zadanie5
+tests
 test.*
 test*.*

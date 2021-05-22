@@ -1,9 +1,11 @@
+#ifndef SCREEN_WORMS_MESSAGES_H
+#define SCREEN_WORMS_MESSAGES_H
+
 #include <string>
 #include <cstring>
 #include <utility>
-#include "events.cpp"
+#include "events.h"
 #include "const.h"
-#include "../common/exceptions.h"
 
 using namespace std;
 
@@ -23,18 +25,23 @@ public:
                   player_name(std::move(_player_name)) {}
 
     ClientToServerMsg(char *msg, size_t size) {
-        memcpy(&session_id, msg, sizeof(session_id));
-        turn_direction = msg[sizeof(session_id)];
-        memcpy(&next_expected_event_no, &msg[sizeof(session_id) + 1],
+        memcpy(&session_id, (uint64_t *) msg, sizeof(session_id));
+        turn_direction = (uint8_t) msg[sizeof(session_id)];
+        memcpy(&next_expected_event_no, (uint32_t *) &msg[sizeof(session_id) + 1],
                sizeof(next_expected_event_no));
-        char *name = nullptr;
+        char name[size - MIN_CLIENT_MSG_LEN];
         memcpy(name, &msg[MIN_CLIENT_MSG_LEN], size - MIN_CLIENT_MSG_LEN);
         player_name = name;
     }
 
     string to_string() {
-        return ::to_string(session_id) + ::to_string(turn_direction)
-            + ::to_string(next_expected_event_no) + player_name;
+        char ret[sizeof(session_id) + sizeof(turn_direction) + sizeof(next_expected_event_no)];
+        memcpy(ret, &session_id, sizeof(session_id));
+        memcpy(ret + sizeof(session_id), &turn_direction, sizeof(turn_direction));
+        memcpy(ret + sizeof(session_id) + sizeof(turn_direction), &next_expected_event_no,
+               sizeof(next_expected_event_no));
+
+        return ret + player_name;
     }
 };
 
@@ -53,10 +60,11 @@ public:
         Event event;
 
         if (msg.size() > sizeof(uint32_t)) {
-            game_id = string_to_int(msg.substr(0, 4));
+            memcpy(&game_id, msg.substr(0, 4).c_str(), sizeof(game_id));
             msg = msg.substr(4, msg.length() - 4);
             while (!msg.empty()) {
-                len = string_to_int(msg.substr(0, 4)) + 8;
+                memcpy(&len, msg.substr(0, 4).c_str(), sizeof(len));
+                len += 8;
                 try {
                      event = Event(msg.substr(0, len));
                 }
@@ -73,14 +81,10 @@ public:
         }
     }
 
-    ServerMsg(uint32_t _game_id, const vector<Event> &_events) :
-            game_id(_game_id),
-            events(_events) {}
-
-    ServerMsg(uint32_t _game_id, const vector<Event> &_events, bool to_all) :
+    ServerMsg(uint32_t _game_id, const vector<Event> &_events, bool to_all = false) :
             game_id(_game_id),
             events(_events),
-            to_all(true) {}
+            to_all(to_all) {}
 
     bool empty() {
         return events.empty();
@@ -105,3 +109,5 @@ public:
         return answers;
     }
 };
+
+#endif //SCREEN_WORMS_MESSAGES_H
