@@ -6,6 +6,7 @@
 #include <vector>
 #include <cstring>
 #include <memory>
+#include <cassert>
 #include "../utils/util_func.h"
 #include "../common/exceptions.h"
 
@@ -22,9 +23,9 @@ class EventData {
 public:
     virtual size_t size() = 0;
 
-    virtual string to_string() = 0;
+    virtual string serialize() = 0;
 
-    virtual string to_gui_msg(const string &player_name) = 0;
+    virtual string to_gui_msg(vector<string> &pl_names) = 0;
 };
 
 class NewGameData : public EventData {
@@ -36,10 +37,10 @@ public:
     vector<string> player_names; // 0–20 znaków ASCII o wartościach z przedziału 33–126, w szczególności spacje nie są dozwolone
 
     NewGameData(const string &str) {
-        memcpy(&maxx, (uint32_t *) str.substr(0, 4).c_str(), 4);
-        memcpy(&maxy, (uint32_t *) str.substr(4, 4).c_str(), 4);
+        maxx = deserialize32(str.substr(0, 4));
+        maxy = deserialize32(str.substr(4, 4));
         string names = str.substr(8, str.length() - 8);
-        player_names = split(names, "\0");
+        player_names = split(names, string("\0", 1));
     }
 
     NewGameData(uint32_t maxx, uint32_t maxy, const vector<string> &player_names) :
@@ -50,28 +51,25 @@ public:
     size_t size() override {
         size_t vec_size = 0;
         for (auto &str : player_names) {
-            vec_size += str.size();
+            vec_size += str.size() + sizeof('\0');
         }
         return 2 * sizeof(uint32_t) + vec_size;
     }
 
-    string to_string() override {
-        char nums[sizeof(maxx) + sizeof(maxy)];
-        memcpy(nums, &maxx, sizeof(maxx));
-        memcpy(nums + sizeof(maxy), &maxy, sizeof(maxy));
-        string ret = nums;
+    string serialize() override {
+        string ret = serialize32(maxx) + serialize32(maxy);
         for (auto &str: player_names) {
-            ret.append(str + '\0');
+            ret.append(str + string("\0", 1));
         }
         return ret;
     }
 
-    string to_gui_msg(const string &player_name) override {
+    string to_gui_msg(vector<string> &pl_names) override {
+        pl_names = player_names;
         string ret = name + " " + std::to_string(maxx) + " " + std::to_string(maxy);
         for (auto &str: player_names) {
             ret.append(" " + str);
         }
-        ret.append("\n");
         return ret;
     }
 };
@@ -84,9 +82,9 @@ public:
     uint32_t y; // 4 bajty, rzędna, liczba bez znaku
 
     PixelData(const string &str) {
-        memcpy(&player_number, (uint8_t *) str.c_str(), 1);
-        memcpy(&x, (uint32_t *) str.substr(1, 4).c_str(), 4);
-        memcpy(&y, (uint32_t *) str.substr(5, 4).c_str(), 4);
+        player_number = deserialize8(str.substr(0, 1));
+        x = deserialize32(str.substr(1, 4));
+        y = deserialize32(str.substr(5, 4));
     }
 
     PixelData(uint8_t player_number, uint32_t x, uint32_t y) : player_number(player_number),
@@ -96,16 +94,12 @@ public:
         return sizeof(uint8_t) + 2 * sizeof(uint32_t);
     }
 
-    string to_string() override {
-        char ret[sizeof(player_number) + sizeof(x) + sizeof(y)];
-        memcpy(ret, &player_number, sizeof(player_number));
-        memcpy(ret + sizeof(player_number), &x, sizeof(x));
-        memcpy(ret + sizeof(player_number) + sizeof(x), &y, sizeof(y));
-        return ret;
+    string serialize() override {
+        return serialize8(player_number) + serialize32(x) + serialize32(y);
     }
 
-    string to_gui_msg(const string &player_name) override {
-        return name + " " + std::to_string(x) + " " + std::to_string(y) + "" + player_name + "\n";
+    string to_gui_msg(vector<string> &pl_names) override {
+        return name + " " + std::to_string(x) + " " + std::to_string(y) + " " + pl_names[player_number];
     }
 };
 
@@ -115,7 +109,7 @@ public:
     uint8_t player_number; // 1 bajt;
 
     PlayerEliminatedData(const string &str) {
-        memcpy(&player_number, (uint8_t *) str.c_str(), 1);
+        player_number = deserialize8(str.substr(0, 1));
     }
 
     explicit PlayerEliminatedData(uint8_t player_number) : player_number(player_number) {}
@@ -124,35 +118,40 @@ public:
         return sizeof(uint8_t);
     }
 
-    string to_string() override {
-        char ret[sizeof(player_number)];
-        memcpy(ret, &player_number, sizeof(player_number));
-        return ret;
+    string serialize() override {
+        return serialize8(player_number);
     }
 
-    string to_gui_msg(const string &player_name) override {
-        return name + " " + player_name + "\n";
+    string to_gui_msg(vector<string> &pl_names) override {
+        return name + " " + pl_names[player_number];
     }
 };
 
 class GameOverData : public EventData {
+public:
+    string name = "GAME_OVER";
+
+    GameOverData() = default;
+
     size_t size() override {
         return 0;
     }
 
-    string to_string() override {
+    string serialize() override {
+        return string();
+    }
+
+    string to_gui_msg(vector<string> &names) override {
         return string();
     }
 };
 
 class Event {
 private:
-    string body_string() {
-        char ret[sizeof(len) + sizeof(event_no) + sizeof(uint8_t)];
-        memcpy(ret, &len, sizeof(len));
-        memcpy(ret + sizeof(len), &event_no, sizeof(event_no));
-        memcpy(ret + sizeof(len) + sizeof event_no, &event_type, sizeof(uint8_t)); // TODO check this enum and 1 byte
-        return ret + event_data->to_string();
+    string body_serialize() {
+        assert((uint8_t) event_type == event_type); // TODO
+        return serialize32(len) + serialize32(event_no) +
+            serialize8(event_type) + event_data->serialize();
     }
 
     static bool correct_event_type(uint8_t type) {
@@ -174,23 +173,22 @@ public:
     Event() = default;
 
     explicit Event(const string &msg) {
-        memcpy(&len, msg.substr(0, 4).c_str(), sizeof(len));
-        memcpy(&event_no, msg.substr(4, 4).c_str(), sizeof(event_no));
-        uint8_t event_t;
-        memcpy(&event_t, msg.substr(8, 1).c_str(), sizeof(uint8_t));
-        if (!correct_event_type(event_t) || event_t == GAME_OVER) {
+        len = deserialize32(msg.substr(0, 4));
+        event_no = deserialize32(msg.substr(4, 4));
+        event_type = (EventType) deserialize8(msg.substr(8, 1));
+
+        if (!correct_event_type(event_type)) {
             throw UnknownEventTypeException();
         }
-        event_type = (EventType) event_t;
+
         string body = msg.substr(0, msg.length() - 4);
-        uint32_t crc;
-        memcpy(&crc, msg.substr(msg.length() - 4, 4).c_str(), sizeof(crc));
-        if (crc != ::crc32(body.c_str(), body.length())) {
+        crc32 = deserialize32(msg.substr(msg.length() - 4, 4));
+        if (crc32 != ::crc32(body.c_str(), body.length())) {
             throw IncorrectCrc32Exception();
         }
-        crc32 = crc;
 
-        string data_str = body.substr(9, body.length() - 9);
+        size_t num_size = 2 * sizeof(uint32_t) + sizeof(uint8_t);
+        string data_str = body.substr(num_size, body.length() - num_size);
         if (event_type == NEW_GAME) {
             event_data = make_shared<NewGameData>(NewGameData(data_str));
         }
@@ -200,7 +198,9 @@ public:
         else if (event_type == PLAYER_ELIMINATED) {
             event_data = make_shared<PlayerEliminatedData>(PlayerEliminatedData(data_str));
         }
-
+        else { // GAME_OVER
+            event_data = make_shared<GameOverData>(GameOverData());
+        }
     }
 
     Event(EventType _event_type, const shared_ptr<EventData> &_event_data) :
@@ -210,18 +210,14 @@ public:
         len = sizeof(uint32_t) + 1 + event_data->size();
     }
 
-    uint32_t calc_crc32() {
-        string s = body_string();
-        return ::crc32(s.c_str(), s.length()); // c_str adds \0 but length() doesn't count this
+    uint32_t calc_crc32(const string &body_str) {
+        return ::crc32(body_str.c_str(), body_str.length()); // c_str adds \0 but length() doesn't count this
     }
 
-    string to_string() {
-        string body_str = body_string();
-        char crc[sizeof(crc32)];
-
-        crc32 = calc_crc32();
-        memcpy(crc, &crc32, sizeof(crc32));
-        return body_str + crc;
+    string serialize() {
+        string body_str = body_serialize();
+        crc32 = calc_crc32(body_str);
+        return body_str + serialize32(crc32);
     }
 };
 

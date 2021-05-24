@@ -4,6 +4,9 @@
 #include <string>
 #include <cstring>
 #include <utility>
+#include <iostream>
+#include <uv.h>
+#include "../utils/util_func.h"
 #include "events.h"
 #include "const.h"
 
@@ -24,24 +27,21 @@ public:
                   next_expected_event_no(_next_expected_event_no),
                   player_name(std::move(_player_name)) {}
 
-    ClientToServerMsg(char *msg, size_t size) {
-        memcpy(&session_id, (uint64_t *) msg, sizeof(session_id));
-        turn_direction = (uint8_t) msg[sizeof(session_id)];
-        memcpy(&next_expected_event_no, (uint32_t *) &msg[sizeof(session_id) + 1],
-               sizeof(next_expected_event_no));
-        char name[size - MIN_CLIENT_MSG_LEN];
-        memcpy(name, &msg[MIN_CLIENT_MSG_LEN], size - MIN_CLIENT_MSG_LEN);
-        player_name = name;
+    ClientToServerMsg(const char *buffer, size_t size) {
+        string msg(buffer, size);
+        session_id = deserialize64(msg.substr(0, sizeof(uint64_t)));
+        turn_direction = deserialize8(msg.substr(sizeof(uint64_t), 1));
+        next_expected_event_no = deserialize32(
+                msg.substr(sizeof(uint64_t) + 1, sizeof(uint32_t)));
+
+        size_t num_size = sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint64_t);
+        player_name = msg.substr(num_size, size - num_size);
+        //cerr << "ClientToServerMsg: " << session_id << " " << turn_direction << " " << next_expected_event_no << " " << player_name << endl;
     }
 
-    string to_string() {
-        char ret[sizeof(session_id) + sizeof(turn_direction) + sizeof(next_expected_event_no)];
-        memcpy(ret, &session_id, sizeof(session_id));
-        memcpy(ret + sizeof(session_id), &turn_direction, sizeof(turn_direction));
-        memcpy(ret + sizeof(session_id) + sizeof(turn_direction), &next_expected_event_no,
-               sizeof(next_expected_event_no));
-
-        return ret + player_name;
+    string serialize() {
+        return serialize64(session_id) + serialize8(turn_direction) +
+            serialize32(next_expected_event_no) + player_name;
     }
 };
 
@@ -54,17 +54,16 @@ public:
 
     explicit ServerMsg() = default;
 
-    ServerMsg(char *buffer, size_t size) {
+    ServerMsg(const char *buffer, size_t size) {
         size_t len;
         string msg(buffer, size);
         Event event;
 
         if (msg.size() > sizeof(uint32_t)) {
-            memcpy(&game_id, msg.substr(0, 4).c_str(), sizeof(game_id));
+            game_id = deserialize32(msg.substr(0, 4));
             msg = msg.substr(4, msg.length() - 4);
             while (!msg.empty()) {
-                memcpy(&len, msg.substr(0, 4).c_str(), sizeof(len));
-                len += 8;
+                len = deserialize32(msg.substr(0, 4)) + 2 * sizeof(uint32_t);
                 try {
                      event = Event(msg.substr(0, len));
                 }
@@ -95,15 +94,15 @@ public:
             return vector<string>();
         }
 
-        vector<string> answers(1);
+        vector<string> answers;
+        string game_id_serialized = serialize32(game_id);
+        answers.push_back(game_id_serialized);
         for (auto &event: events) {
-            string event_str = event.to_string();
-            if (event_str.length() < DATAGRAM_SIZE - answers.back().length()) {
-                answers.back().append(event_str);
+            string event_str = event.serialize();
+            if (event_str.length() > DATAGRAM_SIZE - answers.back().length()) {
+                answers.push_back(game_id_serialized);
             }
-            else {
-                answers.push_back(event_str);
-            }
+            answers.back().append(event_str);
         }
 
         return answers;

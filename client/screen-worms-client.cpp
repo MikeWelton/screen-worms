@@ -4,11 +4,13 @@
 #include <regex>
 #include <iostream>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include "../utils/util_func.h"
 #include "../utils/timer.h"
 #include "../common/messages.h"
 
-#define MILLIS 3000
+#define MILLIS 30
+#define UNKNOWN_GUI_COMMAND 3
 
 static const map<string, uint8_t> KEY_TO_DIR = {
         {"LEFT_KEY_DOWN", 2},
@@ -20,23 +22,27 @@ static const map<string, uint8_t> KEY_TO_DIR = {
 
 class Connection {
 private:
-    static int create_connection(struct addrinfo host, int type, int protocol) {
-        int sock = socket(host.ai_family, type, protocol);
-        if (sock < 0) {
+    static pollfd create_connection(struct addrinfo host, int type, int protocol) {
+        pollfd pol{};
+
+        pol.events = POLLIN;
+        pol.fd = socket(host.ai_family, type, protocol);
+        if (pol.fd < 0) {
             exit_error("Socket error");
         }
 
         int set = 1;
         if (type == SOCK_STREAM) {
-            if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &set, sizeof(int)) < 0) {
+            if (setsockopt(pol.fd, IPPROTO_TCP, TCP_NODELAY, &set, sizeof(int)) < 0) {
                 exit_error("No delay option");
             }
         }
 
-        if (connect(sock, host.ai_addr, host.ai_addrlen) < 0) {
+        if (connect(pol.fd, host.ai_addr, host.ai_addrlen) < 0) {
             exit_error("Connect");
         }
-        return sock;
+
+        return pol;
     }
 
 public:
@@ -45,12 +51,12 @@ public:
     string gui_server = "localhost";
     string gui_server_port = "20210";
 
-    int get_game_server_sock() {
+    pollfd get_game_server_poll() {
         return create_connection(resolve_host(game_server, SOCK_DGRAM, game_server_port),
                                  SOCK_DGRAM, IPPROTO_UDP);
     }
 
-    int get_gui_server_sock() {
+    pollfd get_gui_server_poll() {
         return create_connection(resolve_host(gui_server, SOCK_STREAM, gui_server_port),
                                  SOCK_STREAM, IPPROTO_TCP);
     }
@@ -59,30 +65,58 @@ public:
 class Client {
 private:
     static uint8_t get_direction(const string &action) {
-        return KEY_TO_DIR.find(action)->second;
+        auto iter = KEY_TO_DIR.find(action.substr(0, action.length() - 1));
+        if (iter == KEY_TO_DIR.end()) {
+            return UNKNOWN_GUI_COMMAND;
+        }
+        return iter->second;
     }
 
     string create_msg_to_server() {
         return ClientToServerMsg(session_id, direction,
-                                 next_expected_event_no, player_name).to_string();
+                                 next_expected_event_no, player_name).serialize();
     }
 
-    vector<string> create_msgs_to_gui(char *buffer, size_t len) {
+    string create_msgs_to_gui(char *buffer, size_t len) {
         ServerMsg msg(buffer, len);
-        vector<string> ret;
+        string ret;
         for (auto &event: msg.events) {
-            ret.push_back(event.event_data->to_gui_msg(player_name));
+            if (event.event_type == GAME_OVER) {
+                next_expected_event_no = 0;
+            }
+            else {
+                next_expected_event_no = event.event_no + 1;
+                ret.append(event.event_data->to_gui_msg(names) + "\n");
+            }
         }
         return ret;
+    }
+
+    int read_from_socket(char *buffer, int sock, const string &err_msg) {
+        int rcv_len;
+        memset(buffer, 0, DATAGRAM_SIZE);
+        if ((rcv_len = read(sock, buffer, DATAGRAM_SIZE)) <= 0) {
+            exit_error(err_msg);
+        }
+        return rcv_len;
+    }
+
+    void write_to_socket(const string &msg, int sock, const string &err_msg) {
+        char buffer[DATAGRAM_SIZE];
+        memcpy(buffer, msg.c_str(), msg.length());
+        if (write(sock, buffer, msg.length()) <= 0) {
+            exit_error(err_msg);
+        }
     }
 
 public:
     uint32_t session_id = Timer::get_session_id();
     uint8_t direction{};
     uint32_t next_expected_event_no = 0;
+    vector<string> names;
     string player_name;
-    int game_server_sock{};
-    int gui_server_sock{};
+    pollfd game_server{};
+    pollfd gui_server{};
     Connection conn;
     Timer timer;
 
@@ -127,36 +161,50 @@ public:
     }
 
     void prepare() {
-        game_server_sock = conn.get_game_server_sock();
-        gui_server_sock = conn.get_gui_server_sock();
+        game_server = conn.get_game_server_poll();
+        gui_server = conn.get_gui_server_poll();
     }
 
     [[noreturn]] void run() {
+        int ret;
         char buffer[DATAGRAM_SIZE];
         socklen_t rcv_len;
         ServerMsg answer;
 
         timer.start();
         for (;;) {
-            memset(buffer, 0, DATAGRAM_SIZE);
-            if ((rcv_len = read(gui_server_sock, buffer, DATAGRAM_SIZE)) > 0) {
-                direction = get_direction(string(buffer, rcv_len));
+            gui_server.revents = 0;
+            game_server.revents = 0;
+
+            ret = poll(&gui_server, 1, 0);
+            if (ret < 0) {
+                exit_error("Gui poll error");
+            }
+            else if (ret > 0 && (gui_server.revents & (POLLIN | POLLERR))) {
+                rcv_len = read_from_socket(buffer, gui_server.fd, "Error read from gui");
+                cerr << "From gui: " << buffer << endl;
+                uint8_t dir = get_direction(string(buffer, rcv_len));
+                direction = dir == UNKNOWN_GUI_COMMAND ? direction : dir;
             }
 
             if (timer.timeout(MILLIS)) {
                 string msg = create_msg_to_server();
-                memcpy(buffer, msg.c_str(), msg.length());
-                send(game_server_sock, buffer, msg.length(), 0);
+                //cerr << "To server: " << msg << endl;
+                write_to_socket(msg, game_server.fd, "Send to game server error");
                 timer.start();
             }
 
-            while ((rcv_len = recv(game_server_sock, buffer, DATAGRAM_SIZE, 0)) > 0) {
-                vector<string> msgs_to_gui = create_msgs_to_gui(buffer, rcv_len);
+            ret = poll(&game_server, 1, 0);
+            if (ret < 0) {
+                exit_error("Server poll error");
+            }
+            else if (ret > 0 && (game_server.revents & (POLLIN | POLLERR))) {
+                rcv_len = read_from_socket(buffer, game_server.fd, "Error read from game server");
+                cerr << "From server: " << buffer << endl;
+                string msgs_to_gui = create_msgs_to_gui(buffer, rcv_len);
 
-                for (auto &msg: msgs_to_gui) {
-                    memcpy(buffer, msg.c_str(), msg.length());
-                    write(gui_server_sock, buffer, msg.length()); // TODO error check, broken pipe etc.
-                }
+                cerr << "To gui: " << msgs_to_gui << endl;
+                write_to_socket(msgs_to_gui, gui_server.fd, "Error write to gui");
             }
         }
     }
@@ -165,7 +213,7 @@ public:
 int main(int argc, char **argv) {
     Client client;
     if (!client.parse_args(argc, argv)) {
-        exit_error("Usage: " + string(argv[0]) + " player_name -n player_name "
+        exit_error("Usage: " + string(argv[0]) + " game_server -n player_name "
                    + "-p server_port -i gui_server_address -r gui_server_port");
     }
     client.prepare();

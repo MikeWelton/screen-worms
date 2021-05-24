@@ -4,8 +4,12 @@
 #include <cstring>
 #include <map>
 #include <uv.h>
+#include <poll.h>
+#include "../utils/util_func.h"
 #include "game_manager.cpp"
 
+#define MIN_PORT 1
+#define MAX_PORT 65535
 #define PLAYERS_LIMIT 25
 #define TIMEOUT_MILLIS 2000
 
@@ -26,7 +30,7 @@ struct cmp_ids {
 class Server {
 public:
     GameManager game_manager;
-    int sock{};
+    pollfd pol{};
     int port_num = 2021;
     map<ClientSock, ClientId, cmp_ids> clients;
     map<ClientSock, Timer, cmp_ids> timers;
@@ -40,10 +44,10 @@ public:
             try {
                 switch (opt) {
                     case 'p':
-                        this->port_num = string_to_int(optarg);
+                        this->set_port(string_to_int(optarg));
                         break;
                     case 's':
-                        game_manager.rng = Rng(string_to_int(optarg));
+                        game_manager.set_rng(string_to_int(optarg));
                         break;
                     case 't':
                         game_manager.set_turning_speed(string_to_int(optarg));
@@ -74,8 +78,9 @@ public:
     void prepare() {
         struct sockaddr_in6 local_addr{};
 
-        this->sock = socket(AF_INET6, SOCK_DGRAM, 0);
-        if (sock < 0) {
+        pol.events = POLLIN;
+        pol.fd = socket(AF_INET6, SOCK_DGRAM, 0);
+        if (pol.fd < 0) {
             exit_error("Socket error");
         }
 
@@ -84,36 +89,40 @@ public:
         local_addr.sin6_port = htons(port_num);
         local_addr.sin6_addr = in6addr_any;
 
-        if (bind(this->sock, (struct sockaddr *) &local_addr, sizeof(local_addr)) < 0) {
+        if (bind(pol.fd, (struct sockaddr *) &local_addr, sizeof(local_addr)) < 0) {
             exit_error("Bind error");
-        }
-
-        struct timeval read_timeout{};
-        read_timeout.tv_sec = 0;
-        read_timeout.tv_usec = 10;
-        if (setsockopt(this->sock, SOL_SOCKET, SO_RCVTIMEO, &read_timeout, sizeof read_timeout) < 0) {
-            exit_error("Set not blocking error");
         }
     }
 
     [[noreturn]] void run() {
         struct sockaddr_in6 client_addr{};
         char buffer[DATAGRAM_SIZE];
-        socklen_t rcv_len;
+        int ret;
+        socklen_t rcv_len = 0;
         ServerMsg answer;
 
         timer.start();
         for(;;) {
-            memset(buffer, 0, DATAGRAM_SIZE);
-            // TODO error check
-            recvfrom(sock, buffer, DATAGRAM_SIZE, 0, (struct sockaddr *) &client_addr, &rcv_len);
+            pol.revents = 0;
 
-            if (rcv_len < MIN_CLIENT_MSG_LEN || MAX_CLIENT_MSG_LEN < rcv_len) { // TODO
-                continue;
+            ret = poll(&pol, 1, 0);
+            if (ret < 0) {
+                // TODO manage error
             }
-
-            answer = manage_message(client_addr.sin6_port, client_addr.sin6_addr, buffer, rcv_len);
-            manage_answer(answer, buffer, client_addr);
+            else if (ret > 0 && (pol.revents & (POLLIN | POLLERR))) {
+                memset(buffer, 0, DATAGRAM_SIZE);
+                rcv_len = sizeof(struct sockaddr_in6);
+                rcv_len = recvfrom(pol.fd, buffer, DATAGRAM_SIZE, 0,
+                               (struct sockaddr *) &client_addr, &rcv_len);
+                if (MIN_CLIENT_MSG_LEN <= rcv_len && rcv_len <= MAX_CLIENT_MSG_LEN) {
+                    char str[INET6_ADDRSTRLEN];
+                    //cerr << "Received message from: " << inet_ntop(AF_INET6, &client_addr, str, sizeof(str)) << " " << client_addr.sin6_port << endl;
+                    answer = manage_message(client_addr.sin6_port,
+                                            client_addr.sin6_addr, buffer, rcv_len);
+                    manage_answer(answer, buffer, client_addr);
+                }
+                // TODO error check
+            }
 
             check_timeouts();
             answer = game_manager.cyclic_activities(timer);
@@ -122,6 +131,11 @@ public:
     }
 
 private:
+    void set_port(int port) {
+        check_limits(port, MIN_PORT, MAX_PORT, "Port");
+        this->port_num = port;
+    }
+
     static uint64_t get_session_id(char *buffer) {
         uint64_t id;
         memcpy(&id, buffer, 8);
@@ -150,7 +164,6 @@ private:
         else if (iter->second.first > session_id) {
             ClientToServerMsg msg(buffer, size);
             clients[client_sock] = ClientId(iter->second.first, msg.player_name);
-            timers[client_sock] = Timer();
             timers[client_sock].start();
             game_manager.player_disconnected(iter->second.second);
             return game_manager.new_participant(ClientToServerMsg(buffer, size), msg.player_name);
@@ -199,7 +212,7 @@ private:
             memcpy(buffer, datagram.c_str(), datagram.length());
 
             // TODO error check
-            sendto(sock, buffer, DATAGRAM_SIZE, 0, (struct sockaddr *) &client_addr, (socklen_t) sizeof(client_addr));
+            sendto(pol.fd, buffer, datagram.length(), 0, (struct sockaddr *) &client_addr, (socklen_t) sizeof(client_addr));
         }
         return true;
     }

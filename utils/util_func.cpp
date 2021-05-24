@@ -1,4 +1,5 @@
 #include "util_func.h"
+#include "../common/exceptions.h"
 #include <iostream>
 #include <algorithm>
 #include <uv.h>
@@ -74,6 +75,15 @@ int string_to_int(const string &str) {
     return result;
 }
 
+/* Function checks if value is given limits (both are inclusive) and throws exception if
+     * limits are violated. */
+void check_limits(int value, int lower_bound, int upper_bound, const string &value_name) {
+    if (value < lower_bound || upper_bound < value) {
+        throw LimitException(value_name + " " + to_string(value) + " violates given limits "
+                             + to_string(lower_bound) + "-" + to_string(upper_bound));
+    }
+}
+
 bool player_name_valid(const string &name) {
     const int MAX_LEN = 20,
             ASCII_LOWER_BOUND = 33,
@@ -137,6 +147,50 @@ Coord normalized_vector(uint32_t angle) {
         rad = (angle - 270) * 180 / M_PI;
         return Coord(sin(rad), -cos(rad));
     }
+}
+
+string serialize8(uint8_t num) {
+    size_t size = sizeof(uint8_t);
+    char c[size];
+    memcpy(c, &num, size);
+    return string(c, size);
+}
+
+string serialize32(uint32_t num) {
+    size_t size = sizeof(uint32_t);
+    uint32_t n = htonl(num);
+    char c[size];
+    memcpy(c, &n, size);
+    return string(c, size);
+}
+
+string serialize64(uint64_t num) {
+    size_t size = sizeof(uint64_t);
+    uint64_t n = htobe64(num);
+    char c[size];
+    memcpy(c, &n, size);
+    return string(c, size);
+}
+
+uint8_t deserialize8(const string &str) {
+    size_t size = sizeof(uint8_t);
+    uint8_t n;
+    memcpy(&n, str.c_str(), size);
+    return n;
+}
+
+uint32_t deserialize32(const string &str) {
+    size_t size = sizeof(uint32_t);
+    uint32_t n;
+    memcpy(&n, str.c_str(), size);
+    return ntohl(n);
+}
+
+uint64_t deserialize64(const string &str) {
+    size_t size = sizeof(uint64_t);
+    uint64_t n;
+    memcpy(&n, str.c_str(), size);
+    return be64toh(n);
 }
 
 void exit_error(const string &msg) {

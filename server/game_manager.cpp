@@ -8,15 +8,16 @@
 #include "../utils/rng.h"
 #include "../utils/id_manager.h"
 
+#define MIN_SEED 0
+#define MAX_SEED UINT32_MAX
 #define MIN_TURNING_SPEED 1
-#define MAX_TURNING_SPEED 360
+#define MAX_TURNING_SPEED 90
 #define MIN_ROUNDS_PER_SEC 1
 #define MAX_ROUNDS_PER_SEC 240
-#define MIN_WIDTH 192
+#define MIN_WIDTH 32
 #define MAX_WIDTH 1920
-#define MIN_HEIGHT 144
+#define MIN_HEIGHT 32
 #define MAX_HEIGHT 1080
-
 
 class PlayerData {
 public:
@@ -28,16 +29,13 @@ public:
     uint8_t turn_direction{};
     bool disconnected = false;
     bool playing = false;
+    bool ready = false;
     Timer timer;
 
     PlayerData() = default;
 
     explicit PlayerData(string _name) : name(std::move(_name)) {
         timer.start();
-    }
-
-    void init(uint32_t width, uint32_t height, Rng &rng) {
-        // TODO here
     }
 };
 
@@ -47,10 +45,12 @@ public:
     uint32_t game_id{};
     vector<Event> events;
     vector<vector<bool>> eaten_pixels; // true if pixel eaten
+    uint32_t first_not_reported_event = 0;
 
     GameState() = default;
 
     GameState(uint32_t id, uint32_t width, uint32_t height) :
+            started(true),
             game_id(id),
             events(),
             eaten_pixels(width, vector<bool>(height, false)) {}
@@ -61,48 +61,43 @@ public:
     }
 
     size_t get_last_event_num() {
+        if (events.empty()) {
+            return 0;
+        }
         return events.back().event_no;
     }
 
     vector<Event> get_missing_events(size_t next_exp_event_no) {
-        return vector<Event>(&events[next_exp_event_no], &(events.back()));
+        if (next_exp_event_no == first_not_reported_event || first_not_reported_event == 0) {
+            return vector<Event>();
+        }
+        return vector<Event>(events.begin() + next_exp_event_no, events.end());
     };
 };
 
 class GameManager {
 private:
-    /* Function checks if value is given limits (both are inclusive) and throws exception if
-     * limits are violated. */
-    static void check_limits(int value, int lower_bound, int upper_bound, const string &value_name) {
-        if (value < lower_bound || upper_bound < value) {
-            throw LimitException(value_name + " " + to_string(value) + " violates given limits "
-                                 + to_string(lower_bound) + "-" + to_string(upper_bound));
-        }
+    bool is_on_board(uint32_t x, uint32_t y) {
+        return 0 <= x && x < width && 0 <= y && y < height;
     }
 
-    /*vector<PlayerData> sort_players_by_name() {
-        vector<PlayerData> players;*/
-        /* Extract values from map and sort them by name. */
-        /*transform(players_data.begin(), players_data.end(), back_inserter(players),
-                  [](const map<uint32_t, PlayerData>::value_type& val) {
-            return val.second;
-        });
-        sort(players.begin(), players.end(),
-             [](const PlayerData &data1, const PlayerData &data2) {
-                 return data1.name < data2.name;
-        });
-        return players;
-    }*/
-
-    ServerMsg create_server_msg() {
-        return ServerMsg(game_state.game_id, game_state.events);
+    ServerMsg create_server_msg(vector<Event> &events) {
+        return ServerMsg(game_state.game_id, events);
     }
 
     ServerMsg create_server_msg_to_all() {
-        return ServerMsg(game_state.game_id, game_state.events, true);
+        vector<Event> &events = game_state.events;
+        uint32_t first_to_report = game_state.first_not_reported_event;
+        game_state.first_not_reported_event = events.size();
+        return ServerMsg(game_state.game_id,
+                         vector<Event>(events.begin() + first_to_report, events.end()), true);
     }
 
     void generate_new_game() {
+        game_state = GameState(rng.get_random(), width, height);
+        playing = ready;
+        ready = 0;
+
         vector<string> names;
         names.reserve(ready);
         for(auto &iter: players_data) {
@@ -114,42 +109,52 @@ private:
         game_state.add_event(event);
     }
 
-    void generate_player_eliminated(uint8_t player_num) {
-        PlayerEliminatedData data(player_num);
+    void generate_player_eliminated(PlayerData &player) {
+        --playing;
+        player.playing = false;
+        PlayerEliminatedData data(player.number);
         Event event = Event(PLAYER_ELIMINATED, make_shared<PlayerEliminatedData>(data));
+        game_state.add_event(event);
     }
 
     void generate_pixel(uint8_t player_num, uint32_t x, uint32_t y) {
+        game_state.eaten_pixels[x][y] = true;
         PixelData data(player_num, x, y);
         Event event = Event(PIXEL, make_shared<PixelData>(data));
+        game_state.add_event(event);
     }
 
     void generate_game_over() {
+        game_state.started = false;
+        ready = 0;
+        playing = 0;
 
+        for(auto &iter: players_data) {
+            PlayerData &player = iter.second;
+            player.playing = false;
+        }
+
+        GameOverData data;
+        Event event = Event(GAME_OVER, make_shared<GameOverData>(data));
+        game_state.add_event(event);
     }
 
     ServerMsg new_game(const ClientToServerMsg &msg) {
-        game_state = GameState(rng.get_random(), width, height);
-        playing = ready;
-        ready = 0;
-
         generate_new_game();
 
         IdManager id_manager;
         for(auto &iter: players_data) {
             PlayerData &player = iter.second;
+            player.ready = false;
             player.playing = true;
             player.number = id_manager.get_next_id();
             player.x = (rng.get_random() % width) + 0.5;
             player.y = (rng.get_random() % height) + 0.5;
             player.move_direction = rng.get_random() % 360;
             if (game_state.eaten_pixels[player.x][player.y]) {
-                --playing;
-                player.playing = false;
-                generate_player_eliminated(player.number);
+                generate_player_eliminated(player);
             }
             else {
-                game_state.eaten_pixels[player.x][player.y] = true;
                 generate_pixel(player.number, player.x, player.y);
             }
         }
@@ -164,18 +169,19 @@ private:
     ServerMsg new_player(const ClientToServerMsg &msg, const string &name) {
         players_data[name].turn_direction = msg.turn_direction;
         if (msg.turn_direction != 0) {
+            players_data[name].ready = true;
             ++ready;
         }
 
         if (game_state.started) {
-            return create_server_msg();
+            return create_server_msg(game_state.events);
         }
         else {
             if (ready >= 2 && ready == players_data.size()) { // game ready to start
                 return new_game(msg);
             }
             else {
-                return create_server_msg();
+                return create_server_msg(game_state.events);
             }
         }
     }
@@ -186,7 +192,7 @@ public:
     uint32_t rounds_per_sec = 50;
     uint32_t width = 640;
     uint32_t height = 480;
-    GameState game_state;
+    GameState game_state = GameState();
     map<string, PlayerData> players_data;
     uint32_t ready = 0;
     uint32_t playing = 0;
@@ -212,14 +218,27 @@ public:
         height = _height;
     }
 
+    void set_rng(int seed) {
+        check_limits(seed, MIN_SEED, MAX_SEED, "Seed");
+        rng = Rng(seed);
+    }
+
     ServerMsg new_message(const ClientToServerMsg &msg, const string &name) {
         auto iter = players_data.find(name);
         if (iter != players_data.end()) { // not observer
             PlayerData &player = iter->second;
             player.turn_direction = msg.turn_direction;
+            if (!game_state.started && msg.turn_direction > 0 && !player.ready) {
+                player.ready = true;
+                ++ready;
+            }
 
-            if (game_state.get_last_event_num() >= msg.next_expected_event_no) {
-                return ServerMsg(game_state.game_id, game_state.get_missing_events(msg.next_expected_event_no));
+            if (ready >= 2 && ready == players_data.size() && !game_state.started) { // game ready to start
+                return new_game(msg);
+            }
+            else if (game_state.get_last_event_num() >= msg.next_expected_event_no) {
+                return ServerMsg(game_state.game_id,
+                                 game_state.get_missing_events(msg.next_expected_event_no));
             }
         }
         return ServerMsg();
@@ -241,38 +260,43 @@ public:
     }
 
     ServerMsg cyclic_activities(Timer &timer) {
-        if (timer.timeout(1 / rounds_per_sec)) {
-            for (auto &iter: players_data) {
-                PlayerData &player = iter.second;
-                if (player.disconnected && player.playing) {
-                    if (player.turn_direction == 1) {
-                        player.move_direction += turning_speed;
-                    }
-                    else if (player.turn_direction == 2) {
-                        player.move_direction -= turning_speed;
-                    }
-                    Coord vec = normalized_vector(player.move_direction);
-                    Coord old = Coord(player.x, player.y);
-                    player.x += vec.first;
-                    player.y += vec.second;
-
-                    if ((uint32_t) player.x == (uint32_t) old.first
-                            && (uint32_t) player.y == (uint32_t) old.second) {
-                        continue;
-                    }
-
-                    if (game_state.eaten_pixels[player.x][player.y]) {
-                        generate_player_eliminated(player.number);
-                    }
-                    else {
-                        game_state.eaten_pixels[player.x][player.y] = true;
-                        generate_pixel(player.number, player.x, player.y);
-                    }
-                }
-            }
-            timer.start();
+        // game has't started yet or started but we should still wait
+        if (!game_state.started || !timer.timeout(1 / rounds_per_sec)) {
+            return ServerMsg();
         }
 
-        return ServerMsg();
+        for (auto &iter: players_data) {
+            PlayerData &player = iter.second;
+            if (player.playing) {
+                if (player.turn_direction == 1) {
+                    player.move_direction += turning_speed;
+                }
+                else if (player.turn_direction == 2) {
+                    player.move_direction -= turning_speed;
+                }
+                Coord vec = normalized_vector(player.move_direction);
+                Coord old = Coord(player.x, player.y);
+                player.x += vec.first;
+                player.y += vec.second;
+
+                if ((uint32_t) player.x == (uint32_t) old.first
+                        && (uint32_t) player.y == (uint32_t) old.second) {
+                    continue;
+                }
+
+                if (game_state.eaten_pixels[player.x][player.y]
+                        || !is_on_board(player.x, player.y)) {
+                    generate_player_eliminated(player);
+                }
+                else {
+                    generate_pixel(player.number, player.x, player.y);
+                }
+            }
+        }
+        if (playing < 2) {
+            generate_game_over();
+        }
+        timer.start();
+        return create_server_msg_to_all();
     }
 };
