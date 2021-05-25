@@ -10,7 +10,8 @@ uint32_t crc32(const char *data, uint32_t size);
 
 int string_to_int(const std::string &str);
 
-void check_limits(int value, int lower_bound, int upper_bound, const std::string &value_name);
+void check_limits(uint32_t value, uint32_t lower_bound, uint32_t upper_bound,
+                  const std::string &value_name);
 
 bool player_name_valid(const std::string &name);
 
@@ -19,6 +20,8 @@ struct addrinfo resolve_host(const std::string& addr, int type, const std::strin
 std::vector<std::string> split(const std::string &str, const std::string &delimiter);
 
 Coord normalized_vector(uint32_t angle);
+
+uint32_t angle(uint32_t curr_angle, int angle_change);
 
 std::string serialize8(uint8_t num);
 

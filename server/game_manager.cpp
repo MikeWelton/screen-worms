@@ -18,6 +18,7 @@
 #define MAX_WIDTH 1920
 #define MIN_HEIGHT 32
 #define MAX_HEIGHT 1080
+#define SECOND_MILLIS 1000
 
 class PlayerData {
 public:
@@ -25,7 +26,7 @@ public:
     string name;
     double x{};
     double y{};
-    uint8_t move_direction{};
+    uint32_t move_direction{};
     uint8_t turn_direction{};
     bool disconnected = false;
     bool playing = false;
@@ -77,11 +78,11 @@ public:
 
 class GameManager {
 private:
-    bool is_on_board(uint32_t x, uint32_t y) {
+    bool is_on_board(double x, double y) {
         return 0 <= x && x < width && 0 <= y && y < height;
     }
 
-    ServerMsg create_server_msg(vector<Event> &events) {
+    ServerMsg create_server_msg(const vector<Event> &events) {
         return ServerMsg(game_state.game_id, events);
     }
 
@@ -119,6 +120,7 @@ private:
 
     void generate_pixel(uint8_t player_num, uint32_t x, uint32_t y) {
         game_state.eaten_pixels[x][y] = true;
+        //cerr << "Eating pixel: (" << x << "," << y << ")" << endl;
         PixelData data(player_num, x, y);
         Event event = Event(PIXEL, make_shared<PixelData>(data));
         game_state.add_event(event);
@@ -129,9 +131,18 @@ private:
         ready = 0;
         playing = 0;
 
-        for(auto &iter: players_data) {
-            PlayerData &player = iter.second;
+        auto iter = players_data.begin();
+        while (iter != players_data.end()) {
+            PlayerData &player = iter->second;
             player.playing = false;
+            if (player.disconnected) {
+                auto to_erase = iter;
+                ++iter;
+                players_data.erase(to_erase);
+            }
+            else {
+                ++iter;
+            }
         }
 
         GameOverData data;
@@ -151,6 +162,7 @@ private:
             player.x = (rng.get_random() % width) + 0.5;
             player.y = (rng.get_random() % height) + 0.5;
             player.move_direction = rng.get_random() % 360;
+            player.turn_direction = 0;
             if (game_state.eaten_pixels[player.x][player.y]) {
                 generate_player_eliminated(player);
             }
@@ -177,7 +189,7 @@ private:
             return create_server_msg(game_state.events);
         }
         else {
-            if (ready >= 2 && ready == players_data.size()) { // game ready to start
+            if (ready >= 2 && ready == players_data.size()) { // Game ready to start.
                 return new_game(msg);
             }
             else {
@@ -224,8 +236,9 @@ public:
     }
 
     ServerMsg new_message(const ClientToServerMsg &msg, const string &name) {
+        //cerr << msg.player_name << " " << msg.next_expected_event_no << " " << to_string(msg.turn_direction) << endl;
         auto iter = players_data.find(name);
-        if (iter != players_data.end()) { // not observer
+        if (iter != players_data.end()) { // Not observer
             PlayerData &player = iter->second;
             player.turn_direction = msg.turn_direction;
             if (!game_state.started && msg.turn_direction > 0 && !player.ready) {
@@ -237,20 +250,24 @@ public:
                 return new_game(msg);
             }
             else if (game_state.get_last_event_num() >= msg.next_expected_event_no) {
-                return ServerMsg(game_state.game_id,
-                                 game_state.get_missing_events(msg.next_expected_event_no));
+                return create_server_msg(
+                        game_state.get_missing_events(msg.next_expected_event_no));
             }
+            return ServerMsg();
         }
-        return ServerMsg();
+        else { // Observer
+            return create_server_msg(game_state.get_missing_events(msg.next_expected_event_no));
+        }
     }
 
     ServerMsg new_participant(const ClientToServerMsg &msg, const string &name) {
-        players_data[name] = PlayerData(msg.player_name); // TODO check if valid
-        if (!msg.player_name.empty()) {
+        if (msg.player_name.empty()) { // Observer - send game history.
+            return create_server_msg(game_state.get_missing_events(msg.next_expected_event_no));
+        }
+        else { // Player
+            players_data[name] = PlayerData(msg.player_name); // TODO check if valid
             return new_player(msg, name);
         }
-        // otherwise it's observer and we don't care about what he is doing
-        return ServerMsg();
     }
 
     void player_disconnected(const string &name) {
@@ -260,8 +277,8 @@ public:
     }
 
     ServerMsg cyclic_activities(Timer &timer) {
-        // game has't started yet or started but we should still wait
-        if (!game_state.started || !timer.timeout(1 / rounds_per_sec)) {
+        // Game has't started yet or started but we should still wait.
+        if (!game_state.started || !timer.timeout(SECOND_MILLIS / rounds_per_sec)) {
             return ServerMsg();
         }
 
@@ -269,27 +286,29 @@ public:
             PlayerData &player = iter.second;
             if (player.playing) {
                 if (player.turn_direction == 1) {
-                    player.move_direction += turning_speed;
+                    player.move_direction = angle(player.move_direction, turning_speed);
                 }
                 else if (player.turn_direction == 2) {
-                    player.move_direction -= turning_speed;
+                    player.move_direction = angle(player.move_direction, -turning_speed);
                 }
                 Coord vec = normalized_vector(player.move_direction);
                 Coord old = Coord(player.x, player.y);
                 player.x += vec.first;
                 player.y += vec.second;
+                //cerr << "Old: " << old.first << " " << old.second << " Current: " << player.x << " " << player.y << endl;
 
-                if ((uint32_t) player.x == (uint32_t) old.first
-                        && (uint32_t) player.y == (uint32_t) old.second) {
+                int64_t old_x = old.first, old_y = old.second,
+                        curr_x = player.x, curr_y = player.y;
+                if (old_x == curr_x && old_y == curr_y) {
                     continue;
                 }
 
-                if (game_state.eaten_pixels[player.x][player.y]
-                        || !is_on_board(player.x, player.y)) {
+                if (!is_on_board(player.x, player.y)
+                        || game_state.eaten_pixels[curr_x][curr_y]) {
                     generate_player_eliminated(player);
                 }
                 else {
-                    generate_pixel(player.number, player.x, player.y);
+                    generate_pixel(player.number, curr_x, curr_y);
                 }
             }
         }

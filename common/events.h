@@ -21,6 +21,8 @@ enum EventType {
 
 class EventData {
 public:
+    virtual string get_name() = 0;
+
     virtual size_t size() = 0;
 
     virtual string serialize() = 0;
@@ -47,6 +49,10 @@ public:
             maxx(maxx),
             maxy(maxy),
             player_names(player_names) {}
+
+    string get_name() override {
+        return name;
+    }
 
     size_t size() override {
         size_t vec_size = 0;
@@ -90,6 +96,10 @@ public:
     PixelData(uint8_t player_number, uint32_t x, uint32_t y) : player_number(player_number),
                                                                x(x), y(y) {}
 
+    string get_name() override {
+        return name;
+    }
+
     size_t size() override {
         return sizeof(uint8_t) + 2 * sizeof(uint32_t);
     }
@@ -99,6 +109,9 @@ public:
     }
 
     string to_gui_msg(vector<string> &pl_names) override {
+        if (player_number >= pl_names.size()) {
+            exit_error("Received bad player number");
+        }
         return name + " " + std::to_string(x) + " " + std::to_string(y) + " " + pl_names[player_number];
     }
 };
@@ -114,6 +127,10 @@ public:
 
     explicit PlayerEliminatedData(uint8_t player_number) : player_number(player_number) {}
 
+    string get_name() override {
+        return name;
+    }
+
     size_t size() override {
         return sizeof(uint8_t);
     }
@@ -123,6 +140,9 @@ public:
     }
 
     string to_gui_msg(vector<string> &pl_names) override {
+        if (player_number >= pl_names.size()) {
+            exit_error("Received bad player number");
+        }
         return name + " " + pl_names[player_number];
     }
 };
@@ -132,6 +152,10 @@ public:
     string name = "GAME_OVER";
 
     GameOverData() = default;
+
+    string get_name() override {
+        return name;
+    }
 
     size_t size() override {
         return 0;

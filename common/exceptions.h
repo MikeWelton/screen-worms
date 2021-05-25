@@ -4,26 +4,24 @@
 #include <exception>
 #include <string>
 
-using namespace std;
-
-class UnknownEventTypeException : public exception {
+class UnknownEventTypeException : public std::exception {
 public:
     UnknownEventTypeException() = default;
 };
 
-class IncorrectCrc32Exception : public exception {
+class IncorrectCrc32Exception : public std::exception {
 public:
     IncorrectCrc32Exception() = default;
 };
 
-class LimitException : public exception {
+class LimitException : public std::exception {
 private:
-    string msg;
+    std::string msg;
 
 public:
-    explicit LimitException(string str) : msg(std::move(str)) {};
+    explicit LimitException(std::string str) : msg(std::move(str)) {};
 
-    string get_msg() {
+    std::string get_msg() {
         return msg;
     }
 };

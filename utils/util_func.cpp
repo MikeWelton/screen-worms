@@ -77,7 +77,7 @@ int string_to_int(const string &str) {
 
 /* Function checks if value is given limits (both are inclusive) and throws exception if
      * limits are violated. */
-void check_limits(int value, int lower_bound, int upper_bound, const string &value_name) {
+void check_limits(uint32_t value, uint32_t lower_bound, uint32_t upper_bound, const string &value_name) {
     if (value < lower_bound || upper_bound < value) {
         throw LimitException(value_name + " " + to_string(value) + " violates given limits "
                              + to_string(lower_bound) + "-" + to_string(upper_bound));
@@ -131,22 +131,37 @@ vector<string> split(const string &str, const string &delimiter) {
 
 Coord normalized_vector(uint32_t angle) {
     double rad;
-    if (0 <= angle && angle <= 90) {
-        rad = angle * 180 / M_PI;
+    auto to_rad = [](uint32_t ang){ return ang * (M_PI / 180); };
+
+    if (0 <= angle && angle < 90) {
+        rad = to_rad(angle);
         return Coord(cos(rad), sin(rad));
     }
     else if (angle < 180) {
-        rad = (angle - 90) * 180 / M_PI;
+        rad = to_rad(angle - 90);
         return Coord(-sin(rad), cos(rad));
     }
-    else if (angle <= 270) {
-        rad = (angle - 180) * 180 / M_PI;
+    else if (angle < 270) {
+        rad = to_rad(angle - 180);
         return Coord(-cos(rad), -sin(rad));
     }
     else {
-        rad = (angle - 270) * 180 / M_PI;
+        rad = to_rad(angle - 270);
         return Coord(sin(rad), -cos(rad));
     }
+}
+
+uint32_t angle(uint32_t curr_angle, int angle_change) {
+    int64_t angle = curr_angle;
+    angle += angle_change;
+    if (angle < 0) {
+        angle += 360;
+    }
+    else if (angle >= 360) {
+        angle -= 360;
+    }
+    cerr << "Got: " << to_string(curr_angle) << " and " << angle_change << " Returned " << angle << endl;
+    return angle;
 }
 
 string serialize8(uint8_t num) {
