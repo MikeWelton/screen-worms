@@ -55,7 +55,7 @@ const uint32_t crc32_tab[] = {
 };
 
 uint32_t crc32(const char *data, uint32_t size) {
-    const uint8_t *p = (const uint8_t *) data;
+    const auto *p = (const uint8_t *) data;
     uint32_t crc;
     crc = ~0U;
     while (size > 0) {
@@ -67,17 +67,18 @@ uint32_t crc32(const char *data, uint32_t size) {
 
 /* Returns result int if conversion is successful or throws exception if result is <= 0
  * or passes exception if stoi threw one. */
-int string_to_int(const string &str) {
-    int result = stoi(str);
-    if (result <= 0) {
-        throw exception();
+int64_t string_to_int(const string &str) {
+    for (char c: str) {
+        if (c < '0' || '9' < c) {
+            throw IncorrectNumberException(c);
+        }
     }
-    return result;
+    return stoll(str);
 }
 
 /* Function checks if value is given limits (both are inclusive) and throws exception if
-     * limits are violated. */
-void check_limits(uint32_t value, uint32_t lower_bound, uint32_t upper_bound, const string &value_name) {
+* limits are violated. */
+void check_limits(int64_t value, int64_t lower_bound, int64_t upper_bound, const string &value_name) {
     if (value < lower_bound || upper_bound < value) {
         throw LimitException(value_name + " " + to_string(value) + " violates given limits "
                              + to_string(lower_bound) + "-" + to_string(upper_bound));
@@ -104,12 +105,12 @@ struct addrinfo resolve_host(const string& addr, int type, const string &port) {
     struct addrinfo hints{}, *result;
 
     memset (&hints, 0, sizeof (hints));
-    hints.ai_family = PF_UNSPEC;
+    hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = type;
     hints.ai_flags |= AI_CANONNAME;
 
     if (getaddrinfo (addr.c_str(), port.c_str(), &hints, &result) != 0) {
-        exit_error("Getaddrinfo error");
+        exit_error("Getaddrinfo error, address probably incorrect");
     }
 
     struct addrinfo ret = *result;
@@ -117,6 +118,7 @@ struct addrinfo resolve_host(const string& addr, int type, const string &port) {
     return ret;
 }
 
+/* Splits string using given delimiter. */
 vector<string> split(const string &str, const string &delimiter) {
     vector<string> tokens;
     size_t end = 0, start = str.find_first_not_of(delimiter, end);
@@ -129,39 +131,16 @@ vector<string> split(const string &str, const string &delimiter) {
     return tokens;
 }
 
+/* Functions using given angle calculates 2d move vector of length 1. */
 Coord normalized_vector(uint32_t angle) {
-    double rad;
-    auto to_rad = [](uint32_t ang){ return ang * (M_PI / 180); };
-
-    if (0 <= angle && angle < 90) {
-        rad = to_rad(angle);
-        return Coord(cos(rad), sin(rad));
-    }
-    else if (angle < 180) {
-        rad = to_rad(angle - 90);
-        return Coord(-sin(rad), cos(rad));
-    }
-    else if (angle < 270) {
-        rad = to_rad(angle - 180);
-        return Coord(-cos(rad), -sin(rad));
-    }
-    else {
-        rad = to_rad(angle - 270);
-        return Coord(sin(rad), -cos(rad));
-    }
+    double rad = ((double) angle) / 180.0 * M_PI;
+    return Coord(cos(rad), sin(rad));
 }
 
+/* Calculates angle in degrees using given current angle and angle change. */
 uint32_t angle(uint32_t curr_angle, int angle_change) {
-    int64_t angle = curr_angle;
-    angle += angle_change;
-    if (angle < 0) {
-        angle += 360;
-    }
-    else if (angle >= 360) {
-        angle -= 360;
-    }
-    cerr << "Got: " << to_string(curr_angle) << " and " << angle_change << " Returned " << angle << endl;
-    return angle;
+    int64_t angle = ((int64_t) curr_angle + (int64_t) angle_change) % 360;
+    return (angle < 0) ? angle + 360 : angle;
 }
 
 string serialize8(uint8_t num) {

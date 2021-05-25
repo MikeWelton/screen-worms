@@ -74,6 +74,9 @@ public:
         pl_names = player_names;
         string ret = name + " " + std::to_string(maxx) + " " + std::to_string(maxy);
         for (auto &str: player_names) {
+            if (!player_name_valid(str) || str.empty()) {
+                exit_error("Received incorrect player name");
+            }
             ret.append(" " + str);
         }
         return ret;

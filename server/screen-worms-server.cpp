@@ -36,7 +36,6 @@ public:
     int port_num = 2021;
     map<ClientSock, ClientId, cmp_ids> clients;
     map<ClientSock, Timer, cmp_ids> timers;
-    Timer timer;
 
     /* Returns true in case of success or false otherwise. */
     bool parse_args(int argc, char **argv) {
@@ -68,7 +67,10 @@ public:
                 }
             }
             catch (LimitException &e) { // catch if value violates limits
-                exit_error(e.get_msg());
+                exit_error(e.what());
+            }
+            catch (IncorrectNumberException &e) {
+                exit_error(e.what());
             }
             catch (exception &e) { // catch conversion exception
                 return false;
@@ -102,32 +104,31 @@ public:
         int ret, rcv_len;
         ServerMsg answer;
 
-        timer.start();
         for(;;) {
             answer = ServerMsg();
             pol.revents = 0;
 
-            ret = poll(&pol, 1, 5);
+            ret = poll(&pol, 1, 0);
             if (ret < 0) {
                 // TODO manage error
             }
             else if (ret > 0 && (pol.revents & (POLLIN | POLLERR))) {
                 rcv_len = receive_message(buffer, client_addr);
                 // TODO error check
-                cerr << "Received: size: " << rcv_len << " " << string(buffer, rcv_len) << endl;
+                // cerr << "Received: size: " << rcv_len << " " << string(buffer, rcv_len) << endl;
                 answer = manage_message(client_addr.sin6_port,
                                             client_addr.sin6_addr, buffer, rcv_len);
                 manage_answer(answer, buffer, client_addr);
             }
 
             check_timeouts();
-            answer = game_manager.cyclic_activities(timer);
+            answer = game_manager.cyclic_activities();
             manage_answer(answer, buffer, client_addr);
         }
     }
 
 private:
-    void set_port(int port) {
+    void set_port(int64_t port) {
         check_limits(port, MIN_PORT, MAX_PORT, "Port");
         this->port_num = port;
     }
@@ -144,7 +145,7 @@ private:
             return false;
         }
         ClientToServerMsg msg(buffer, size);
-        if (!player_name_valid(msg.player_name) && !msg.player_name.empty()) {
+        if (!player_name_valid(msg.player_name)) {
             return false;
         }
         return true;
@@ -240,9 +241,9 @@ private:
         for (const auto &iter: clients) {
             names.push_back(iter.second.second);
         }
-        /*for (auto &ev: answer.events) {
-            cerr << "Sending " << ev.event_data->to_gui_msg(names) << " " << ev.event_no << " " << ev.event_data << endl;
-        }*/
+        for (auto &ev: answer.events) {
+            //cerr << "Sending " << ev.event_data->to_gui_msg(names) << " " << ev.event_no << " " << ev.event_data << endl;
+        }
         for (auto &datagram: answer.get_datagrams()) {
             memset(buffer, 0, DATAGRAM_SIZE);
             memcpy(buffer, datagram.c_str(), datagram.length());

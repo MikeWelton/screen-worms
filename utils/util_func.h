@@ -8,9 +8,9 @@
 
 uint32_t crc32(const char *data, uint32_t size);
 
-int string_to_int(const std::string &str);
+int64_t string_to_int(const std::string &str);
 
-void check_limits(uint32_t value, uint32_t lower_bound, uint32_t upper_bound,
+void check_limits(int64_t value, int64_t lower_bound, int64_t upper_bound,
                   const std::string &value_name);
 
 bool player_name_valid(const std::string &name);

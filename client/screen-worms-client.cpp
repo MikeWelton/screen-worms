@@ -86,6 +86,16 @@ private:
             if (event.event_type == NEW_GAME) {
                 next_expected_event_no = 0;
                 game_id = msg.game_id;
+                auto &data = dynamic_cast<NewGameData &>(*(event.event_data));
+                maxx = data.maxx;
+                maxy = data.maxy;
+            }
+
+            if (event.event_type == PIXEL) {
+                auto &data = dynamic_cast<PixelData &>(*(event.event_data));
+                if (data.x >= maxx || data.y >= maxy) { // Bad values
+                    exit_error("Incorrect pixel values");
+                }
             }
 
             next_expected_event_no = min(next_expected_event_no + 1, event.event_no + 1);
@@ -102,7 +112,7 @@ private:
     int read_from_socket(char *buffer, int sock, const string &err_msg) {
         int rcv_len;
         memset(buffer, 0, DATAGRAM_SIZE);
-        if ((rcv_len = recv(sock, buffer, DATAGRAM_SIZE, 0)) <= 0) {
+        if ((rcv_len = read(sock, buffer, DATAGRAM_SIZE)) <= 0) {
             exit_error(err_msg);
         }
         return rcv_len;
@@ -118,6 +128,8 @@ private:
 
 public:
     uint32_t game_id = 0;
+    uint32_t maxx = 0;
+    uint32_t maxy = 0;
     uint32_t session_id = Timer::get_session_id();
     uint8_t direction{};
     uint32_t next_expected_event_no = 0;
@@ -144,17 +156,22 @@ public:
                         player_name = optarg;
                         break;
                     case 'p':
+                        string_to_int(optarg);
                         conn.game_server_port = optarg;
                         break;
                     case 'i':
                         conn.gui_server = optarg;
                         break;
                     case 'r':
+                        string_to_int(optarg);
                         conn.gui_server_port = optarg;
                         break;
                     default: // Unknown option, input incorrect
                         return false;
                 }
+            }
+            catch (IncorrectNumberException &e) {
+                return false;
             }
             catch (exception &e) {
                 return false;
@@ -186,13 +203,13 @@ public:
             game_server.events = POLLIN;
             game_server.revents = 0;
 
-            ret = poll(&gui_server, 1, 5);
+            ret = poll(&gui_server, 1, 0);
             if (ret < 0) {
                 exit_error("Gui poll error");
             }
             else if (ret > 0 && (gui_server.revents & (POLLIN | POLLERR))) {
                 rcv_len = read_from_socket(buffer, gui_server.fd, "Error read from gui");
-                //cerr << "From gui: " << buffer << endl;
+                cout << "From gui: " << buffer << endl;
                 uint8_t dir = get_direction(string(buffer, rcv_len));
                 direction = dir == UNKNOWN_GUI_COMMAND ? direction : dir;
             }
@@ -204,7 +221,7 @@ public:
                 timer.start();
             }
 
-            ret = poll(&game_server, 1, 5);
+            ret = poll(&game_server, 1, 0);
             if (ret < 0) {
                 exit_error("Server poll error");
             }
@@ -216,9 +233,6 @@ public:
                     //cerr << "To gui: " << msgs_to_gui << endl;
                     write_to_socket(msgs_to_gui, gui_server.fd, "Error write to gui");
                 }
-            }
-            if (ret != 0) {
-                //cerr << "Poll returned: " << ret << " Revents is: " << game_server.revents << endl;
             }
         }
     }

@@ -1,6 +1,8 @@
 #include <map>
 #include <utility>
 #include <algorithm>
+#include <cmath>
+#include <iomanip>
 #include "../common/exceptions.h"
 #include "../common/events.h"
 #include "../common/messages.h"
@@ -13,10 +15,10 @@
 #define MIN_TURNING_SPEED 1
 #define MAX_TURNING_SPEED 90
 #define MIN_ROUNDS_PER_SEC 1
-#define MAX_ROUNDS_PER_SEC 240
-#define MIN_WIDTH 32
+#define MAX_ROUNDS_PER_SEC 250
+#define MIN_WIDTH 16
 #define MAX_WIDTH 1920
-#define MIN_HEIGHT 32
+#define MIN_HEIGHT 16
 #define MAX_HEIGHT 1080
 #define SECOND_MILLIS 1000
 
@@ -26,7 +28,7 @@ public:
     string name;
     double x{};
     double y{};
-    uint32_t move_direction{};
+    int32_t move_direction{};
     uint8_t turn_direction{};
     bool disconnected = false;
     bool playing = false;
@@ -108,6 +110,7 @@ private:
         NewGameData data(width, height, names);
         Event event = Event(NEW_GAME, make_shared<NewGameData>(data));
         game_state.add_event(event);
+        timer.start();
     }
 
     void generate_player_eliminated(PlayerData &player) {
@@ -162,7 +165,6 @@ private:
             player.x = (rng.get_random() % width) + 0.5;
             player.y = (rng.get_random() % height) + 0.5;
             player.move_direction = rng.get_random() % 360;
-            player.turn_direction = 0;
             if (game_state.eaten_pixels[player.x][player.y]) {
                 generate_player_eliminated(player);
             }
@@ -208,29 +210,29 @@ public:
     map<string, PlayerData> players_data;
     uint32_t ready = 0;
     uint32_t playing = 0;
+    Timer timer;
 
-
-    void set_turning_speed(int _turning_speed) {
+    void set_turning_speed(int64_t _turning_speed) {
         check_limits(_turning_speed, MIN_TURNING_SPEED, MAX_TURNING_SPEED, "Turning speed");
         turning_speed = _turning_speed;
     }
 
-    void set_rounds_per_sec(int _rounds_per_sec) {
+    void set_rounds_per_sec(int64_t _rounds_per_sec) {
         check_limits(_rounds_per_sec, MIN_ROUNDS_PER_SEC, MAX_ROUNDS_PER_SEC, "Rounds per sec");
         rounds_per_sec = _rounds_per_sec;
     }
 
-    void set_width(int _width) {
+    void set_width(int64_t _width) {
         check_limits(_width, MIN_WIDTH, MAX_WIDTH, "Width");
         width = _width;
     }
 
-    void set_height(int _height) {
+    void set_height(int64_t _height) {
         check_limits(_height, MIN_HEIGHT, MAX_HEIGHT, "Height");
         height = _height;
     }
 
-    void set_rng(int seed) {
+    void set_rng(int64_t seed) {
         check_limits(seed, MIN_SEED, MAX_SEED, "Seed");
         rng = Rng(seed);
     }
@@ -253,11 +255,14 @@ public:
                 return create_server_msg(
                         game_state.get_missing_events(msg.next_expected_event_no));
             }
-            return ServerMsg();
         }
         else { // Observer
-            return create_server_msg(game_state.get_missing_events(msg.next_expected_event_no));
+            if (game_state.get_last_event_num() >= msg.next_expected_event_no) {
+                return create_server_msg(
+                        game_state.get_missing_events(msg.next_expected_event_no));
+            }
         }
+        return ServerMsg();
     }
 
     ServerMsg new_participant(const ClientToServerMsg &msg, const string &name) {
@@ -276,7 +281,7 @@ public:
         }
     }
 
-    ServerMsg cyclic_activities(Timer &timer) {
+    ServerMsg cyclic_activities() {
         // Game has't started yet or started but we should still wait.
         if (!game_state.started || !timer.timeout(SECOND_MILLIS / rounds_per_sec)) {
             return ServerMsg();
@@ -286,15 +291,17 @@ public:
             PlayerData &player = iter.second;
             if (player.playing) {
                 if (player.turn_direction == 1) {
-                    player.move_direction = angle(player.move_direction, turning_speed);
+                    player.move_direction = (player.move_direction + turning_speed) % 360;
                 }
                 else if (player.turn_direction == 2) {
-                    player.move_direction = angle(player.move_direction, -turning_speed);
+                    player.move_direction = (player.move_direction - (int32_t) turning_speed) % 360;
+                    if (player.move_direction < 0) {
+                        player.move_direction += 360;
+                    }
                 }
-                Coord vec = normalized_vector(player.move_direction);
                 Coord old = Coord(player.x, player.y);
-                player.x += vec.first;
-                player.y += vec.second;
+                player.x += cos(((double) player.move_direction) / 180.0 * M_PI);
+                player.y += sin(((double) player.move_direction) / 180.0 * M_PI);
                 //cerr << "Old: " << old.first << " " << old.second << " Current: " << player.x << " " << player.y << endl;
 
                 int64_t old_x = old.first, old_y = old.second,
@@ -306,15 +313,17 @@ public:
                 if (!is_on_board(player.x, player.y)
                         || game_state.eaten_pixels[curr_x][curr_y]) {
                     generate_player_eliminated(player);
+                    if (playing < 2) {
+                        generate_game_over();
+                        break;
+                    }
                 }
                 else {
                     generate_pixel(player.number, curr_x, curr_y);
                 }
             }
         }
-        if (playing < 2) {
-            generate_game_over();
-        }
+
         timer.start();
         return create_server_msg_to_all();
     }
