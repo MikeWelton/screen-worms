@@ -16,9 +16,9 @@
 #define MIN_ROUNDS_PER_SEC 1
 #define MAX_ROUNDS_PER_SEC 250
 #define MIN_WIDTH 16
-#define MAX_WIDTH 1920
+#define MAX_WIDTH 2560
 #define MIN_HEIGHT 16
-#define MAX_HEIGHT 1080
+#define MAX_HEIGHT 1440
 #define SECOND_MILLIS 1000
 
 class PlayerData {

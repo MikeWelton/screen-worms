@@ -11,7 +11,6 @@
 
 #define MIN_PORT 1
 #define MAX_PORT 65535
-#define PLAYERS_LIMIT 25
 #define TIMEOUT_MILLIS 2000
 
 using namespace std;

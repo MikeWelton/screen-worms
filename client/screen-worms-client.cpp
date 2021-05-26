@@ -91,6 +91,9 @@ private:
                 auto &data = dynamic_cast<NewGameData &>(*(event.event_data));
                 maxx = data.maxx;
                 maxy = data.maxy;
+                if (data.player_names.size() < 2 || PLAYERS_LIMIT < data.player_names.size()) {
+                    exit_error("Incorrect players number");
+                }
             }
 
             if (event.event_type == PIXEL) {
