@@ -15,18 +15,16 @@ using namespace std;
 class ClientToServerMsg {
 public:
     uint64_t session_id; // 8 bajtów, liczba bez znaku
-    uint8_t turn_direction; // 1 bajt, liczba bez znaku, wartość 0 - prosto,
-    // wartość 1 - w prawo, wartość 2 - w lewo
+    uint8_t turn_direction; // 1 bajt, liczba bez znaku, wartość 0 → prosto, wartość 1 → w prawo, wartość 2 → w lewo
     uint32_t next_expected_event_no; // 4 bajty, liczba bez znaku
-    string player_name; // 0–20 znaków ASCII o wartościach z przedziału 33–126,
-    // w szczególności spacje nie są dozwolone
+    string player_name; // 0–20 znaków ASCII o wartościach z przedziału 33–126, w szczególności spacje nie są dozwolone
 
     ClientToServerMsg(uint64_t _session_id, uint8_t _turn_direction,
                       uint32_t _next_expected_event_no, string _player_name) :
-            session_id(_session_id),
-            turn_direction(_turn_direction),
-            next_expected_event_no(_next_expected_event_no),
-            player_name(std::move(_player_name)) {}
+                  session_id(_session_id),
+                  turn_direction(_turn_direction),
+                  next_expected_event_no(_next_expected_event_no),
+                  player_name(std::move(_player_name)) {}
 
     ClientToServerMsg(const char *buffer, size_t size) {
         string msg(buffer, size);
@@ -41,7 +39,7 @@ public:
 
     string serialize() {
         return serialize64(session_id) + serialize8(turn_direction) +
-               serialize32(next_expected_event_no) + player_name;
+            serialize32(next_expected_event_no) + player_name;
     }
 };
 
@@ -65,7 +63,7 @@ public:
             while (!msg.empty()) {
                 len = deserialize32(msg.substr(0, 4)) + 2 * sizeof(uint32_t);
                 try {
-                    event = Event(msg.substr(0, len));
+                     event = Event(msg.substr(0, len));
                 }
                 catch (IncorrectCrc32Exception &e) {
                     return;

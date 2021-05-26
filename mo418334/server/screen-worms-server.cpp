@@ -106,7 +106,7 @@ public:
         int ret, rcv_len;
         ServerMsg answer;
 
-        for (;;) {
+        for(;;) {
             answer = ServerMsg();
             pol.revents = 0;
 
@@ -139,7 +139,8 @@ private:
     }
 
     /* Checks if message size and player name in message from client are correct. */
-    static bool msg_from_client_valid(char *buffer, size_t size) {
+    static bool msg_from_client_valid(char *buffer,
+            size_t size) {
         if (size < MIN_CLIENT_MSG_LEN || MAX_CLIENT_MSG_LEN < size) {
             return false;
         }
@@ -153,7 +154,7 @@ private:
     /* Function checks if address details and its session_id and calls appropriate
      * game manager function. */
     ServerMsg manage_message(in_port_t client_port, struct in6_addr ip6_addr, char *buffer,
-                             size_t size) {
+            size_t size) {
         if (!msg_from_client_valid(buffer, size)) {
             return ServerMsg();
         }
@@ -256,7 +257,7 @@ private:
             char l_str[INET6_ADDRSTRLEN];
             inet_ntop(AF_INET6, &client_addr, l_str, sizeof(l_str));
             sendto(pol.fd, buffer, datagram.length(), 0,
-                   (sockaddr *) &client_addr, (socklen_t) sizeof(client_addr));
+                         (sockaddr *) &client_addr, (socklen_t) sizeof(client_addr));
         }
     }
 };
@@ -265,7 +266,7 @@ int main(int argc, char **argv) {
     Server server;
     if (!server.parse_args(argc, argv)) {
         exit_error("Usage: " + string(argv[0]) + " -p port_num -s seed -t turning_speed "
-                   + "-v rounds_per_sec -w width -h height");
+        + "-v rounds_per_sec -w width -h height");
     }
     server.prepare();
     server.run();

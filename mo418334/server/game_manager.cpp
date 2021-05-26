@@ -106,7 +106,7 @@ private:
 
         vector<string> names;
         names.reserve(ready);
-        for (auto &iter: players_data) {
+        for(auto &iter: players_data) {
             PlayerData &player = iter.second;
             names.push_back(player.name);
         }
@@ -165,7 +165,7 @@ private:
         generate_new_game();
 
         IdManager id_manager;
-        for (auto &iter: players_data) {
+        for(auto &iter: players_data) {
             PlayerData &player = iter.second;
             player.ready = false;
             player.playing = true;
@@ -228,8 +228,7 @@ public:
     }
 
     void set_rounds_per_sec(int64_t _rounds_per_sec) {
-        check_limits(_rounds_per_sec, MIN_ROUNDS_PER_SEC, MAX_ROUNDS_PER_SEC,
-                     "Rounds per sec");
+        check_limits(_rounds_per_sec, MIN_ROUNDS_PER_SEC, MAX_ROUNDS_PER_SEC, "Rounds per sec");
         rounds_per_sec = _rounds_per_sec;
     }
 
@@ -260,8 +259,7 @@ public:
                 ++ready;
             }
 
-            if (ready >= 2 && ready == players_data.size()
-                && !game_state.started) { // Game ready to start
+            if (ready >= 2 && ready == players_data.size() && !game_state.started) { // Game ready to start
                 return new_game();
             }
             else if (game_state.get_last_event_num() >= msg.next_expected_event_no) {
@@ -281,8 +279,7 @@ public:
     /* Add new player or send events to new observer. */
     ServerMsg new_participant(const ClientToServerMsg &msg, const string &name) {
         if (msg.player_name.empty()) { // Observer - send game history.
-            return create_server_msg(
-                    game_state.get_missing_events(msg.next_expected_event_no));
+            return create_server_msg(game_state.get_missing_events(msg.next_expected_event_no));
         }
         else { // Player
             players_data[name] = PlayerData(msg.player_name);
@@ -312,8 +309,7 @@ public:
                     player.move_direction = (player.move_direction + turning_speed) % 360;
                 }
                 else if (player.turn_direction == 2) {
-                    player.move_direction =
-                            (player.move_direction - (int32_t) turning_speed) % 360;
+                    player.move_direction = (player.move_direction - (int32_t) turning_speed) % 360;
                     if (player.move_direction < 0) {
                         player.move_direction += 360;
                     }
@@ -329,7 +325,7 @@ public:
                 }
 
                 if (!is_on_board(player.x, player.y)
-                    || game_state.eaten_pixels[curr_x][curr_y]) {
+                        || game_state.eaten_pixels[curr_x][curr_y]) {
                     generate_player_eliminated(player);
                     if (playing < 2) {
                         generate_game_over();

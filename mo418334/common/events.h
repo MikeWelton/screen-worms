@@ -35,9 +35,8 @@ public:
     string name = "NEW_GAME";
     uint32_t maxx; // 4 bajty, szerokość planszy w pikselach, liczba bez znaku
     uint32_t maxy; // 4 bajty, wysokość planszy w pikselach, liczba bez znaku
-    // następnie lista nazw graczy zawierająca dla każdego z graczy player_name oraz znak '\0'
-    vector<string> player_names; // 0–20 znaków ASCII o wartościach z przedziału 33–126,
-    // w szczególności spacje nie są dozwolone
+    // następnie lista nazw graczy zawierająca dla każdego z graczy player_name, jak w punkcie „2.1. Komunikaty od klienta do serwera”, oraz znak '\0'
+    vector<string> player_names; // 0–20 znaków ASCII o wartościach z przedziału 33–126, w szczególności spacje nie są dozwolone
 
     NewGameData(const string &str) {
         maxx = deserialize32(str.substr(0, 4));
@@ -108,8 +107,7 @@ public:
         if (player_number >= pl_names.size()) {
             exit_error("Received bad player number");
         }
-        return name + " " + std::to_string(x) + " " + std::to_string(y) + " " +
-               pl_names[player_number];
+        return name + " " + std::to_string(x) + " " + std::to_string(y) + " " + pl_names[player_number];
     }
 };
 
@@ -163,7 +161,7 @@ class Event {
 private:
     string body_serialize() {
         return serialize32(len) + serialize32(event_no) +
-               serialize8(event_type) + event_data->serialize();
+            serialize8(event_type) + event_data->serialize();
     }
 
     static bool correct_event_type(uint8_t type) {
@@ -180,8 +178,7 @@ public:
     uint32_t event_no{}; // 4 bajty, liczba bez znaku, dla każdej partii kolejne wartości, począwszy od zera
     EventType event_type; // 1 bajt
     shared_ptr<EventData> event_data; // zależy od typu, patrz opis poniżej
-    uint32_t crc32; // 4 bajty, liczba bez znaku, suma kontrolna obejmująca pola od pola len
-    // do event_data włącznie, obliczona standardowym algorytmem CRC-32-IEEE
+    uint32_t crc32; // 4 bajty, liczba bez znaku, suma kontrolna obejmująca pola od pola len do event_data włącznie, obliczona standardowym algorytmem CRC-32-IEEE
 
     Event() = default;
 
@@ -224,8 +221,7 @@ public:
     }
 
     uint32_t calc_crc32(const string &body_str) {
-        return ::crc32(body_str.c_str(),
-                       body_str.length()); // c_str adds \0 but length() doesn't count this
+        return ::crc32(body_str.c_str(), body_str.length()); // c_str adds \0 but length() doesn't count this
     }
 
     string serialize() {

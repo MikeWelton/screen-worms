@@ -12,10 +12,10 @@
 #define UNKNOWN_GUI_COMMAND 3
 
 static const map<string, uint8_t> KEY_TO_DIR = {
-        {"LEFT_KEY_DOWN",  2},
-        {"LEFT_KEY_UP",    0},
+        {"LEFT_KEY_DOWN", 2},
+        {"LEFT_KEY_UP", 0},
         {"RIGHT_KEY_DOWN", 1},
-        {"RIGHT_KEY_UP",   0}
+        {"RIGHT_KEY_UP", 0}
 };
 
 
@@ -231,8 +231,7 @@ public:
                 exit_error("Server poll error");
             }
             else if (ret >= 0 && (game_server.revents & (POLLIN | POLLERR))) {
-                rcv_len = read_from_socket(buffer, game_server.fd,
-                                           "Error read from game server");
+                rcv_len = read_from_socket(buffer, game_server.fd, "Error read from game server");
                 string msgs_to_gui = create_msgs_to_gui(buffer, rcv_len);
 
                 if (!msgs_to_gui.empty()) {
