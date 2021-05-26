@@ -79,6 +79,7 @@ public:
         return (optind >= argc); // we do not accept non option arguments
     }
 
+    /* Prepares server before starting communication. */
     void prepare() {
         sockaddr_in6 local_addr{};
 
@@ -98,6 +99,8 @@ public:
         }
     }
 
+    /* Server main loop consisting of checking incoming datagrams, running cyclical game
+     * activities and sending answer datagrams. */
     [[noreturn]] void run() {
         sockaddr_in6 client_addr{};
         char buffer[DATAGRAM_SIZE];
@@ -116,9 +119,11 @@ public:
                 rcv_len = receive_message(buffer, client_addr);
                 // TODO error check
                 // cerr << "Received: size: " << rcv_len << " " << string(buffer, rcv_len) << endl;
-                answer = manage_message(client_addr.sin6_port,
+                if (rcv_len > 0) {
+                    answer = manage_message(client_addr.sin6_port,
                                             client_addr.sin6_addr, buffer, rcv_len);
-                manage_answer(answer, buffer, client_addr);
+                    manage_answer(answer, buffer, client_addr);
+                }
             }
 
             check_timeouts();
@@ -139,6 +144,7 @@ private:
         return id;
     }
 
+    /* Checks if message size and player name in message from client are correct. */
     bool msg_from_client_valid(char *buffer,
             size_t size) {
         if (size < MIN_CLIENT_MSG_LEN || MAX_CLIENT_MSG_LEN < size) {
@@ -151,6 +157,8 @@ private:
         return true;
     }
 
+    /* Function checks if address details and its session_id and calls appropriate
+     * game manager function. */
     ServerMsg manage_message(in_port_t client_port, struct in6_addr ip6_addr, char *buffer,
             size_t size) {
         if (!msg_from_client_valid(buffer, size)) {
@@ -162,7 +170,7 @@ private:
         auto iter = clients.find(client_sock);
         uint64_t session_id = get_session_id(buffer);
 
-        if (iter == clients.end()) {
+        if (iter == clients.end()) { // Client connected first time.
             if (clients.size() >= PLAYERS_LIMIT) {
                 return ServerMsg();
             }
@@ -171,22 +179,27 @@ private:
             timers[client_sock].start();
             return game_manager.new_participant(msg, msg.player_name);
         }
-        else if (iter->second.first == session_id) {
+        else if (iter->second.first == session_id) { // New message from known client.
+            if (msg.player_name != iter->second.second) { // Known client but different name - ignore.
+                return ServerMsg();
+            }
             timers[client_sock].start();
             return game_manager.new_message(msg, iter->second.second);
         }
-        else if (iter->second.first > session_id) {
+        else if (iter->second.first > session_id) { // New, greater session_id from known client.
             clients[client_sock] = ClientId(iter->second.first, msg.player_name);
             timers[client_sock].start();
             game_manager.player_disconnected(iter->second.second);
             return game_manager.new_participant(msg, msg.player_name);
         }
-        else {
-            timers[client_sock].start();
+        else { // Lesser session_id from known client - ignore.
+            //timers[client_sock].start();
             return ServerMsg();
         }
     }
 
+    /* Checks timer for every connected participant. If timeout appeared then participant is
+     * disconnected and reported to game manager. */
     void check_timeouts() {
         auto iter = timers.begin();
         while (iter != timers.end()) {
@@ -214,6 +227,7 @@ private:
                         &addr_size);
     }
 
+    /* Calls send or send to all depending on flag to_all in message object. */
     void manage_answer(ServerMsg &answer, char *buffer, sockaddr_in6 &client_addr) {
         if (!answer.empty()) {
             if (answer.to_all) {
@@ -235,6 +249,7 @@ private:
         }
     }
 
+    /* Sends all datagrams to given client. */
     void send_answer(ServerMsg &answer, char *buffer, sockaddr_in6 &client_addr) {
         int ret;
         vector<string> names;

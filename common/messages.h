@@ -50,7 +50,7 @@ class ServerMsg {
 public:
     uint32_t game_id{}; // 4 bajty, liczba bez znaku
     vector<Event> events; // zmienna liczba rekordów, zgodnych z poniższą specyfikacją
-    bool to_all = false;
+    bool to_all = false; // message should be send to all clients
 
     explicit ServerMsg() = default;
 
@@ -89,6 +89,8 @@ public:
         return events.empty();
     }
 
+    /* Divides events that should be sent into separate datagrams (serializes ServerMsg class)
+     * trying to put as many events as possible into single datagram. */
     vector<string> get_datagrams() {
         if (empty()) {
             return vector<string>();

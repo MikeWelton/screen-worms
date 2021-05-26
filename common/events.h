@@ -21,12 +21,13 @@ enum EventType {
 
 class EventData {
 public:
-    virtual string get_name() = 0;
-
+    /* Returns byte size of the event data. */
     virtual size_t size() = 0;
 
+    /* Serializes event data into format specified for server message. */
     virtual string serialize() = 0;
 
+    /* Serializes event data to format specified for gui message format. */
     virtual string to_gui_msg(vector<string> &pl_names) = 0;
 };
 
@@ -49,10 +50,6 @@ public:
             maxx(maxx),
             maxy(maxy),
             player_names(player_names) {}
-
-    string get_name() override {
-        return name;
-    }
 
     size_t size() override {
         size_t vec_size = 0;
@@ -99,10 +96,6 @@ public:
     PixelData(uint8_t player_number, uint32_t x, uint32_t y) : player_number(player_number),
                                                                x(x), y(y) {}
 
-    string get_name() override {
-        return name;
-    }
-
     size_t size() override {
         return sizeof(uint8_t) + 2 * sizeof(uint32_t);
     }
@@ -130,10 +123,6 @@ public:
 
     explicit PlayerEliminatedData(uint8_t player_number) : player_number(player_number) {}
 
-    string get_name() override {
-        return name;
-    }
-
     size_t size() override {
         return sizeof(uint8_t);
     }
@@ -155,10 +144,6 @@ public:
     string name = "GAME_OVER";
 
     GameOverData() = default;
-
-    string get_name() override {
-        return name;
-    }
 
     size_t size() override {
         return 0;

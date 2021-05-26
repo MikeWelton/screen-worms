@@ -70,6 +70,7 @@ public:
         return events.back().event_no;
     }
 
+    /* Returns all missing events starting from next_expected_event_no. */
     vector<Event> get_missing_events(size_t next_exp_event_no) {
         if (next_exp_event_no == first_not_reported_event || first_not_reported_event == 0) {
             return vector<Event>();
@@ -88,6 +89,7 @@ private:
         return ServerMsg(game_state.game_id, events);
     }
 
+    /* Creates message to all players with all events that were not reported so far. */
     ServerMsg create_server_msg_to_all() {
         vector<Event> &events = game_state.events;
         uint32_t first_to_report = game_state.first_not_reported_event;
@@ -96,6 +98,8 @@ private:
                          vector<Event>(events.begin() + first_to_report, events.end()), true);
     }
 
+    /* Creates new game_stete object. Generates new game event and adds it to stored events.
+     * Starts round timer. */
     void generate_new_game() {
         game_state = GameState(rng.get_random(), width, height);
         playing = ready;
@@ -113,6 +117,7 @@ private:
         timer.start();
     }
 
+    /* Generates event player eliminated and adds it to stored events. */
     void generate_player_eliminated(PlayerData &player) {
         --playing;
         player.playing = false;
@@ -121,6 +126,7 @@ private:
         game_state.add_event(event);
     }
 
+    /* Generates event pixel and adds it to stored events. */
     void generate_pixel(uint8_t player_num, uint32_t x, uint32_t y) {
         game_state.eaten_pixels[x][y] = true;
         //cerr << "Eating pixel: (" << x << "," << y << ")" << endl;
@@ -129,6 +135,8 @@ private:
         game_state.add_event(event);
     }
 
+    /* Generates event game over and adds it to stored events. Ends current game and removes
+     * disconnected players from the players list. */
     void generate_game_over() {
         game_state.started = false;
         ready = 0;
@@ -153,6 +161,8 @@ private:
         game_state.add_event(event);
     }
 
+    /* Generates new game and initializes players information possibly generating
+     * some events. */
     ServerMsg new_game(const ClientToServerMsg &msg) {
         generate_new_game();
 
@@ -180,6 +190,8 @@ private:
         return create_server_msg_to_all();
     }
 
+    /* Adds new player (not observer). May start new game if conditions are met.
+     * Returns answer for adding new player. */
     ServerMsg new_player(const ClientToServerMsg &msg, const string &name) {
         players_data[name].turn_direction = msg.turn_direction;
         if (msg.turn_direction != 0) {
@@ -237,6 +249,8 @@ public:
         rng = Rng(seed);
     }
 
+    /* Processes new message from known player or observer.
+     * May start new game if conditions are met. Returns answer to that message. */
     ServerMsg new_message(const ClientToServerMsg &msg, const string &name) {
         //cerr << msg.player_name << " " << msg.next_expected_event_no << " " << to_string(msg.turn_direction) << endl;
         auto iter = players_data.find(name);
@@ -265,6 +279,7 @@ public:
         return ServerMsg();
     }
 
+    /* Add new player or send events to new observer. */
     ServerMsg new_participant(const ClientToServerMsg &msg, const string &name) {
         if (msg.player_name.empty()) { // Observer - send game history.
             return create_server_msg(game_state.get_missing_events(msg.next_expected_event_no));
@@ -281,6 +296,9 @@ public:
         }
     }
 
+    /* Performs next round actions (calculates players movements) if certain time has passed.
+     * Ends game when game over event appears. Calculated events are put into message
+     * directed to every connected participant. */
     ServerMsg cyclic_activities() {
         // Game has't started yet or started but we should still wait.
         if (!game_state.started || !timer.timeout(SECOND_MILLIS / rounds_per_sec)) {

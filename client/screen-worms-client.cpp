@@ -9,7 +9,7 @@
 #include "../utils/timer.h"
 #include "../common/messages.h"
 
-#define MILLIS 50
+#define MILLIS 30
 #define UNKNOWN_GUI_COMMAND 3
 
 static const map<string, uint8_t> KEY_TO_DIR = {
@@ -64,6 +64,8 @@ public:
 
 class Client {
 private:
+    /* Function takes action (which key was pressed/released) and returns move direction or
+     * information about unknown gui command. */
     static uint8_t get_direction(const string &action) {
         auto iter = KEY_TO_DIR.find(action.substr(0, action.length() - 1));
         if (iter == KEY_TO_DIR.end()) {
@@ -77,6 +79,8 @@ private:
                                  next_expected_event_no, player_name).serialize();
     }
 
+    /* Function saves and validates data sent from server. In case of incorrect values
+     * client is terminated. If data is valid, function creates new message to gui. */
     string create_msgs_to_gui(char *buffer, size_t len) {
         ServerMsg msg(buffer, len);
         string ret;
@@ -109,6 +113,7 @@ private:
         return ret;
     }
 
+    /* Read from socket with error control. */
     int read_from_socket(char *buffer, int sock, const string &err_msg) {
         int rcv_len;
         memset(buffer, 0, DATAGRAM_SIZE);
@@ -118,6 +123,7 @@ private:
         return rcv_len;
     }
 
+    /* Write to socket with error control. */
     void write_to_socket(const string &msg, int sock, const string &err_msg) {
         char buffer[DATAGRAM_SIZE];
         memcpy(buffer, msg.c_str(), msg.length());
@@ -190,6 +196,9 @@ public:
         gui_server = conn.get_gui_server_poll();
     }
 
+    /* Client main loop. Client checks for message from gui and changes direction
+     * accordingly. After every 30 ms client sends current direction to server. Then
+     * checks for server answer and if it occurred sends immediately message to gui. */
     [[noreturn]] void run() {
         int ret;
         char buffer[DATAGRAM_SIZE];

@@ -85,6 +85,7 @@ void check_limits(int64_t value, int64_t lower_bound, int64_t upper_bound, const
     }
 }
 
+/* Validates player name - checks range of characters in name and its length. */
 bool player_name_valid(const string &name) {
     const int MAX_LEN = 20,
             ASCII_LOWER_BOUND = 33,
@@ -101,6 +102,7 @@ bool player_name_valid(const string &name) {
     });
 }
 
+/* Resolves host with given addr and port using given protocol type (UDP or TCP). */
 struct addrinfo resolve_host(const string& addr, int type, const string &port) {
     struct addrinfo hints{}, *result;
 
@@ -143,6 +145,7 @@ uint32_t angle(uint32_t curr_angle, int angle_change) {
     return (angle < 0) ? angle + 360 : angle;
 }
 
+/* Serializing and deserializing functions for numbers of different size. */
 string serialize8(uint8_t num) {
     size_t size = sizeof(uint8_t);
     char c[size];
