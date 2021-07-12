@@ -292,7 +292,14 @@ public:
 
     void player_disconnected(const string &name) {
         if (!name.empty()) {
-            players_data[name].disconnected = true;
+            PlayerData &player = players_data[name];
+            player.disconnected = true;
+            if (!game_state.started) {
+                if (player.ready) {
+                    --ready;
+                }
+                players_data.erase(name);
+            }
         }
     }
 
