@@ -184,8 +184,7 @@ private:
             game_manager.player_disconnected(iter->second.second);
             return game_manager.new_participant(msg, msg.player_name);
         }
-        else { // Lesser session_id from known client - ignore.
-            //timers[client_sock].start();
+        else { // Smaller session_id from known client - ignore.
             return ServerMsg();
         }
     }

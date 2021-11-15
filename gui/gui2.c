@@ -316,8 +316,7 @@ gint main (gint argc, gchar *argv[]) {
   init_colors();
 
   // Ustawienie callbacka dla idle
-  idle_id = g_idle_add(idle_callback, &started);
-  // TODO idle_id = g_timeout_add(1, idle_callback, &started);
+  idle_id = g_timeout_add(1, idle_callback, &started);
   // Utworzenie głównego okna aplikacji
   window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   gtk_window_set_title(GTK_WINDOW (window), "Netacka GUI");
